@@ -8,9 +8,11 @@
 
 **Log Asynchronous Writer** is a lightweight log asynchronous writer. It is designed to be used in high concurrency scenarios, such as HTTP servers, gRPC servers, etc.
 
+`LAW` has `double buffer` design which means that it can write data to the `channel` asynchronously, and then flush the bufferIO to the `io.Writer` when the buffer is full. Split the write action and data writing, which design can greatly improve the performance of the writer and reduce the pressure on the `io.Writer`.
+
 `LAW` is very simple, it only has two APIs: `Write` and `Stop`. `Write` is used to write log data to the buffer, and `Stop` is used to stop the writer.
 
-`LAW` can be used any where which implements the `io.Writer` interface and asynchronous writing is required.
+`LAW` can be used any where which implements the `io.Writer` interface and asynchronous writing is required. such as `zap`, `logrus`, `klog`, `zerolog`, etc.
 
 # Advantage
 
