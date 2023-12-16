@@ -12,8 +12,6 @@
 
 `LAW` can be used any where which implements the `io.Writer` interface and asynchronous writing is required.
 
-# Design
-
 # Advantage
 
 -   Simple and easy to use
@@ -340,6 +338,9 @@ $ go run demo.go
 ```
 
 # Benchmark
+
+> [!IMPORTANT]
+> Benchmark test result is only for reference. Different hardware environment will have different results.
 
 ### Environment
 
