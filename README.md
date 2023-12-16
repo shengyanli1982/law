@@ -351,7 +351,7 @@ $ go run demo.go
 
 ## 1. Base
 
-Compare the performance of `LAW` with `os.Stdout` and `zapcore.AddSync(os.Stdout)`.
+Compare the performance of `LAW` with `BlackHoleWriter` and `zapcore.AddSync(BlackHoleWriter)`.
 
 ```bash
 # go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
@@ -368,7 +368,7 @@ BenchmarkZapAsyncWriter-8            	 1638626	       732.9 ns/op	      29 B/op	
 BenchmarkZapAsyncWriterParallel-8    	 2091085	       595.6 ns/op	    8689 B/op	       0 allocs/op
 ```
 
-`LAW` use `double buffer` to write log data, so the performance of `LAW` maybe not as good as `zapcore.AddSync(os.Stdout)`. I think maybe benchmark code is not good enough, if you have better benchmark code, please let me know.
+`LAW` use `double buffer` to write log data, so the performance of `LAW` maybe not as good as `zapcore.AddSync(BlackHoleWriter)`. I think maybe benchmark code is not good enough, if you have better benchmark code, please let me know.
 
 ## 2. Http Server
 
