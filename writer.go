@@ -176,9 +176,10 @@ func (wa *WriteAsyncer) bufferIoWriterRefresh() {
 			wa.bufferIoLock.Lock()
 			// 如果缓冲区有数据，并且空闲时间超过默认空闲时间，则刷新缓冲区 (If the buffer has data and the idle time exceeds the default idle time, flush the buffer)
 			if wa.bufferIoWriter.Buffered() > 0 && time.Now().UnixMilli()-wa.idleAt.Load() > defaultIdleTimeout.Milliseconds() {
-				if err := wa.bufferIoWriter.Flush(); err != nil {
+				if err := wa.bufferIoWriter.Flush(); err != nil { // 刷新缓冲区 (Flush the buffer)
 					log.Printf("buffer io writer flush error, error: %s", err.Error())
 				}
+				wa.idleAt.Store(time.Now().UnixMilli()) // 设置空闲时间 (Set idle time)
 			}
 			wa.bufferIoLock.Unlock()
 		}
