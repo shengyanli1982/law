@@ -1,4 +1,4 @@
-package zapasyncwriter
+package law
 
 import (
 	"bufio"
