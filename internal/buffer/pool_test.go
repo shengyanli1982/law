@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBytesBuffer_Standard(t *testing.T) {
+func TestBytesBufferPool_Standard(t *testing.T) {
 	p := NewExtraBufferPool(0)
 	assert.NotNil(t, p)
 
