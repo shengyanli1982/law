@@ -137,7 +137,7 @@ func (wa *WriteAsyncer) poller() {
 		wa.wg.Done()
 	}()
 
-	// 执行 (Execute)
+	// 执行读取从链表中读取，并写入到底层的 writer 中 (Execute reading from the list and write to the underlying writer)
 	exec := func(ln *list.Node) {
 		eb := ln.Data().(*buf.ExtraBuffer)                // 从链表节点中获取缓冲区 (Get buffer from the list node)
 		bytes := eb.Buffer().Bytes()                      // 从缓冲区中获取日志 (Get log entries from the buffer)
@@ -157,12 +157,19 @@ func (wa *WriteAsyncer) poller() {
 		wa.listNodePool.Put(ln) // 将链表节点放回链表节点池中 (Put list node back into the list node pool)
 	}
 
+	// 循环处理 (Loop processing)
 	for {
 		select {
 		case <-wa.stopCtx.Done(): // 如果停止上下文被取消，则返回 (If the stop context is canceled, return)
 			wa.queueLock.Lock()
-			for ln := wa.queue.Pop(); ln != nil; ln = wa.queue.Pop() { // 从队列中取出所有的链表节点 (Pop all list nodes from the queue)
+			for {
+				ln := wa.queue.Pop() // 从队列中取出链表节点 (Pop list node from the queue)
+				if ln == nil {       // 如果链表节点为空，则退出 (If the list node is empty, exit)
+					break
+				}
+				wa.queueLock.Unlock()
 				exec(ln) // 执行 (Execute)
+				wa.queueLock.Lock()
 			}
 			wa.queueLock.Unlock()
 			return
@@ -170,12 +177,11 @@ func (wa *WriteAsyncer) poller() {
 			wa.queueLock.Lock()
 			ln := wa.queue.Pop() // 从队列中取出链表节点 (Pop list node from the queue)
 			wa.queueLock.Unlock()
-			if ln == nil {
+			if ln != nil { // 如果链表节点不为空，则执行 (If the list node is not empty, execute)
+				exec(ln) // 执行 (Execute)
+			} else {
 				<-heartbeat.C // 如果队列为空，则等待心跳 (If the queue is empty, wait for heartbeat)
-				break
 			}
-
-			exec(ln) // 执行 (Execute)
 		}
 	}
 }
@@ -189,6 +195,7 @@ func (wa *WriteAsyncer) bufferIoWriterRefresh() {
 		wa.wg.Done()
 	}()
 
+	// 循环处理 (Loop processing)
 	for {
 		select {
 		case <-wa.stopCtx.Done():
