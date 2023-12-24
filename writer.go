@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	defaultBufferedIoSize = 512 * 1024      // 默认缓冲IO大小为512k (Default buffered IO size is 512k)
-	defaultIdleTimeout    = 5 * time.Second // 默认空闲时间为5秒 (Default idle timeout is 5 seconds)
+	defaultIdleTimeout = 5 * time.Second // 默认空闲时间为5秒 (Default idle timeout is 5 seconds)
 )
 
 type Config struct {
@@ -68,7 +67,7 @@ func NewWriteAsyncer(w io.Writer, conf *Config) *WriteAsyncer {
 	wa := &WriteAsyncer{
 		closed:         atomic.Bool{},
 		writer:         w,
-		bufferIoWriter: bufio.NewWriterSize(w, defaultBufferedIoSize),
+		bufferIoWriter: bufio.NewWriterSize(w, buf.DefaultBufferSize),
 		bufferIoLock:   sync.Mutex{},
 		queue:          list.NewDeque(),
 		queueLock:      sync.Mutex{},
@@ -105,10 +104,10 @@ func WriteAsyncerWrapper(w *WriteAsyncer) Writer {
 // 检查配置是否有效，如果无效，设置默认值 (Check if the config is valid, if not, set the default value)
 func (wa *WriteAsyncer) isConfigValid() {
 	if wa.config == nil {
-		wa.config = NewConfig().WithBufferSize(defaultBufferedIoSize).WithCallback(&emptyCallback{})
+		wa.config = NewConfig().WithBufferSize(buf.DefaultBufferSize).WithCallback(&emptyCallback{})
 	} else {
-		if wa.config.bfsize <= defaultBufferedIoSize {
-			wa.config.bfsize = defaultBufferedIoSize
+		if wa.config.bfsize <= buf.DefaultBufferSize {
+			wa.config.bfsize = buf.DefaultBufferSize
 		}
 		if wa.config.cb == nil {
 			wa.config.cb = &emptyCallback{}
@@ -153,8 +152,8 @@ func (wa *WriteAsyncer) poller() {
 		}
 
 		wa.idleAt.Store(now)    // 设置空闲时间 (Set idle time)
-		wa.bufferPool.Put(eb)   // 将缓冲区放回缓冲区池中 (Put buffer back into the buffer pool)
 		wa.listNodePool.Put(ln) // 将链表节点放回链表节点池中 (Put list node back into the list node pool)
+		wa.bufferPool.Put(eb)   // 将缓冲区放回缓冲区池中 (Put buffer back into the buffer pool)
 	}
 
 	// 循环处理 (Loop processing)
@@ -234,9 +233,8 @@ func (wa *WriteAsyncer) Write(p []byte) (int, error) {
 	eb := wa.bufferPool.Get()              // 从缓冲区池中获取缓冲区 (Get buffer from the buffer pool)
 	eb.Buffer().Write(p)                   // 将日志写入到缓冲区 (Write log entries into the buffer)
 	eb.SetUpdateAt(time.Now().UnixMilli()) // 设置更新时间 (Set update time)
-
-	ln := wa.listNodePool.Get() // 从链表节点池中获取链表节点 (Get list node from the list node pool)
-	ln.SetData(eb)              // 设置链表节点数据 (Set list node data)
+	ln := wa.listNodePool.Get()            // 从链表节点池中获取链表节点 (Get list node from the list node pool)
+	ln.SetData(eb)                         // 设置链表节点数据 (Set list node data)
 
 	wa.config.cb.OnPushQueue(p) // 回调函数 (Callback function)
 

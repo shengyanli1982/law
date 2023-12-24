@@ -8,11 +8,11 @@ type ExtraBufferPool struct {
 
 func NewExtraBufferPool(size int) *ExtraBufferPool {
 	if size <= 0 {
-		size = defaultBufferSize // 如果大小小于等于0，则使用默认缓冲区大小 (if size is less than or equal to 0, use default buffer size)
+		size = DefaultBufferSize // 如果大小小于等于0，则使用默认缓冲区大小 (if size is less than or equal to 0, use default buffer size)
 	}
 	return &ExtraBufferPool{
 		bp: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return NewExtraBuffer(size) // 创建新的ExtraBuffer对象 (create a new ExtraBuffer object)
 			},
 		},

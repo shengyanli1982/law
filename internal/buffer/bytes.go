@@ -4,7 +4,7 @@ import (
 	"bytes"
 )
 
-const defaultBufferSize = 2048 // 默认缓冲区大小 (default buffer size)
+const DefaultBufferSize = 2048 // 默认缓冲区大小 (default buffer size)
 
 type ExtraBuffer struct {
 	buff     *bytes.Buffer // 字节缓冲区 (byte buffer)
