@@ -8,7 +8,7 @@
 
 **Log Asynchronous Writer** is a lightweight log asynchronous writer. It is designed to be used in high concurrency scenarios, such as HTTP servers, gRPC servers, etc.
 
-`LAW` has `double buffer` design which means that it can write data to the `channel` asynchronously, and then flush the bufferIO to the `io.Writer` when the buffer is full. Split the write action and data writing, which design can greatly improve the performance of the writer and reduce the pressure on the `io.Writer`.
+`LAW` has `double buffer` design which means that it can write data to the `deque` asynchronously, and then flush the bufferIO to the `io.Writer` when the buffer is full. Split the write action and data writing, which design can greatly improve the performance of the writer and reduce the pressure on the `io.Writer`.
 
 `LAW` is very simple, it only has two APIs: `Write` and `Stop`. `Write` is used to write log data to the buffer, and `Stop` is used to stop the writer.
 
@@ -55,6 +55,8 @@ w.Stop() // stop the writer
 
 > [!TIP]
 > Callback functions is not required that you can use `LAW` without callback functions. Set `nil` when create a writer, and the callback function will not be called.
+>
+> You can use `WithCallback` method to set callback functions.
 
 ### Example
 
@@ -103,8 +105,10 @@ func main() {
 
 > [!TIP]
 >
-> -   The default `channel` capacity is `262140`, which means that the buffer can hold `262140` log data.
-> -   The default `bufferIo` capacity is `512k`, which means that the buffer can hold `512k` log data. If the capacity of the buffer is full, `LAW` will auto flush the buffer to the `io.Writer`.
+> -   The default `deque` capacity is infinity, which means that the buffer can hold unlimited log data.
+> -   The default `bufferIo` capacity is `2k`, which means that the buffer can hold `2k` log data. If the capacity of the buffer is full, `LAW` will auto flush the buffer to the `io.Writer`. `2k` is a good choice, but you can also change it.
+>
+> You can use `WithBufferSize` method to change the bufferIo size.
 
 ### Example
 
@@ -120,7 +124,7 @@ import (
 )
 
 func main() {
-    conf := NewConfig().WithBufferSize(1024).WithCap(1024)
+    conf := NewConfig().WithBufferSize(1024)
 
     w := NewWriteAsyncer(os.Stdout, conf)
     defer w.Stop()
@@ -362,15 +366,17 @@ goos: darwin
 goarch: amd64
 pkg: github.com/shengyanli1982/law/benchmark
 cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-8           	1000000000	         0.2912 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2711 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriter-8             	 3327212	       360.3 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-8     	21183800	        54.85 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-8            	 1638626	       732.9 ns/op	      29 B/op	       0 allocs/op
-BenchmarkZapAsyncWriterParallel-8    	 2091085	       595.6 ns/op	    8689 B/op	       0 allocs/op
+BenchmarkBlackHoleWriter-8           	1000000000	         0.2871 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2489 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapSyncWriter-8             	 3357697	       351.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapSyncWriterParallel-8     	21949550	        59.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapAsyncWriter-8            	  481237	      2133 ns/op	     932 B/op	       1 allocs/op
+BenchmarkZapAsyncWriterParallel-8    	 1453645	       865.7 ns/op	    2074 B/op	       3 allocs/op
 ```
 
-`LAW` use `double buffer` to write log data, so the performance of `LAW` maybe not as good as `zapcore.AddSync(BlackHoleWriter)`. I think maybe benchmark code is not good enough, if you have better benchmark code, please let me know.
+`LAW` use `double buffer` to write log data, so the performance of `LAW` maybe not as good as `zapcore.AddSync(BlackHoleWriter)`.
+
+`LAW` use `deque` + `sync.Pool` to store log data and `bufio` will let test result not good. Or maybe benchmark code is not good enough, if you have better benchmark code, please let me know.
 
 ## 2. Http Server
 
