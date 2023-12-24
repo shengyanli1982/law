@@ -107,7 +107,7 @@ func (wa *WriteAsyncer) isConfigValid() {
 	if wa.config == nil {
 		wa.config = NewConfig().WithBufferSize(defaultBufferedIoSize).WithCallback(&emptyCallback{})
 	} else {
-		if wa.config.bfsize <= 0 {
+		if wa.config.bfsize <= defaultBufferedIoSize {
 			wa.config.bfsize = defaultBufferedIoSize
 		}
 		if wa.config.cb == nil {
