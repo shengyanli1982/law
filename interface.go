@@ -1,4 +1,4 @@
-package zapasyncwriter
+package law
 
 // Writer is the common interface for all log writers.
 // Writer 是所有日志写入器的通用接口。

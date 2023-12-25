@@ -1,8 +1,7 @@
-package zapasyncwriter
+package law
 
 import (
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -40,6 +39,20 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	time.Sleep(time.Second)
 }
 
+func TestWriteAsyncer_EarlyShutdown(t *testing.T) {
+	w := NewWriteAsyncer(os.Stdout, nil)
+
+	_, err := w.Write([]byte("hello"))
+	assert.Nil(t, err)
+	_, err = w.Write([]byte("world"))
+	assert.Nil(t, err)
+	_, err = w.Write([]byte("!!!"))
+	assert.Nil(t, err)
+
+	w.Stop()
+	time.Sleep(time.Second)
+}
+
 func TestWriteAsyncer_Callback(t *testing.T) {
 	conf := NewConfig().WithCallback(&callback{})
 
@@ -58,17 +71,4 @@ func TestWriteAsyncer_Callback(t *testing.T) {
 	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.cb.(*callback).a0)
 	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.cb.(*callback).a1)
 	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.cb.(*callback).a2)
-}
-
-func TestXxx(t *testing.T) {
-	conf := NewConfig().WithBufferSize(1024).WithCap(1024)
-
-	w := NewWriteAsyncer(os.Stdout, conf)
-	defer w.Stop()
-
-	for i := 0; i < 10; i++ {
-		_, _ = w.Write([]byte(strconv.Itoa(i)))
-	}
-
-	time.Sleep(time.Second)
 }
