@@ -317,7 +317,7 @@ func main() {
 	aw := law.NewWriteAsyncer(os.Stdout, nil)
 	defer aw.Stop()
 
-	log := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	log := zerolog.New(aw).With().Timestamp().Logger()
 
 	for i := 0; i < 10; i++ {
 		log.Info().Int("i", i).Msg("hello")
@@ -325,6 +325,7 @@ func main() {
 
 	time.Sleep(3 * time.Second)
 }
+
 ```
 
 **Results**
