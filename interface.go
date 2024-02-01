@@ -22,3 +22,12 @@ type emptyCallback struct{}
 func (c *emptyCallback) OnPushQueue([]byte)       {} // do nothing
 func (c *emptyCallback) OnPopQueue([]byte, int64) {} // do nothing
 func (c *emptyCallback) OnWrite([]byte)           {} // do nothing
+
+func newEmptyCallback() *emptyCallback {
+	return &emptyCallback{}
+}
+
+type QueueInterface interface {
+	Push(value any)
+	Pop() any
+}

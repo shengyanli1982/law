@@ -44,7 +44,7 @@ func BenchmarkBlackHoleWriterParallel(b *testing.B) {
 func BenchmarkLogAsyncWriter(b *testing.B) {
 	w := xu.BlackHoleWriter{}
 
-	aw := x.NewWriteAsyncer(&w, nil)
+	aw := x.NewWriteAsyncer(&w, nil, nil)
 	defer aw.Stop()
 
 	b.ReportAllocs()
@@ -58,7 +58,7 @@ func BenchmarkLogAsyncWriter(b *testing.B) {
 func BenchmarkLogAsyncWriterParallel(b *testing.B) {
 	w := xu.BlackHoleWriter{}
 
-	aw := x.NewWriteAsyncer(&w, nil)
+	aw := x.NewWriteAsyncer(&w, nil, nil)
 	defer aw.Stop()
 
 	b.ReportAllocs()
@@ -105,7 +105,7 @@ func BenchmarkZapSyncWriterParallel(b *testing.B) {
 func BenchmarkZapAsyncWriter(b *testing.B) {
 	w := xu.BlackHoleWriter{}
 
-	aw := x.NewWriteAsyncer(&w, nil)
+	aw := x.NewWriteAsyncer(&w, nil, nil)
 	defer aw.Stop()
 
 	zapAsyncWriter := zapcore.AddSync(aw)
@@ -123,7 +123,7 @@ func BenchmarkZapAsyncWriter(b *testing.B) {
 func BenchmarkZapAsyncWriterParallel(b *testing.B) {
 	w := xu.BlackHoleWriter{}
 
-	aw := x.NewWriteAsyncer(&w, nil)
+	aw := x.NewWriteAsyncer(&w, nil, nil)
 	defer aw.Stop()
 
 	zapAsyncWriter := zapcore.AddSync(aw)
