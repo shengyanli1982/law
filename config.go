@@ -1,30 +1,37 @@
 package law
 
-const DefaultBufferSize = 2048 // 默认缓冲区大小 (default buffer size)
+const DefaultBufferSize = 2048
 
 type Config struct {
-	buffsize int      // 缓冲区大小 (Buffer size)
-	callback Callback // 回调函数 (Callback function)
+	logger   Logger
+	buffsize int
+	callback Callback
 }
 
-// 创建一个配置对象 (Create a new Config object)
 func NewConfig() *Config {
-	return &Config{buffsize: DefaultBufferSize, callback: newEmptyCallback()}
+	return &Config{
+		buffsize: DefaultBufferSize,
+		callback: newEmptyCallback(),
+		logger:   newLogger(),
+	}
 }
 
 func DefaultConfig() *Config {
 	return NewConfig()
 }
 
-// 设置缓冲区大小 (Set the buffer size)
 func (c *Config) WithBufferSize(size int) *Config {
 	c.buffsize = size
 	return c
 }
 
-// 设置回调函数 (Set the callback function)
 func (c *Config) WithCallback(cb Callback) *Config {
 	c.callback = cb
+	return c
+}
+
+func (c *Config) WithLogger(logger Logger) *Config {
+	c.logger = logger
 	return c
 }
 
@@ -35,6 +42,9 @@ func isConfigValid(conf *Config) *Config {
 		}
 		if conf.callback == nil {
 			conf.callback = newEmptyCallback()
+		}
+		if conf.logger == nil {
+			conf.logger = newLogger()
 		}
 	} else {
 		conf = DefaultConfig()

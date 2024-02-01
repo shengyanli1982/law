@@ -1,6 +1,7 @@
 package law
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"os"
@@ -9,85 +10,96 @@ import (
 	"time"
 
 	lfq "github.com/shengyanli1982/law/internal/queue"
+	"github.com/shengyanli1982/law/internal/util"
+)
+
+const (
+	defaultHeartbeatInterval = 500 * time.Millisecond
+	defaultIdleTimeout       = 5 * time.Second
 )
 
 type Element struct {
-	buff     []byte
+	buffer   []byte
 	updateAt int64
 }
 
-type WriteAsyncer struct {
-	config *Config
-	queue  QueueInterface
-	writer io.Writer
-	timer  atomic.Int64
-	once   sync.Once
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+type Status struct {
+	running   atomic.Bool
+	executeAt atomic.Int64
 }
 
-func NewWriteAsyncer(w io.Writer, queue QueueInterface, conf *Config) *WriteAsyncer {
-	if w == nil {
-		w = os.Stdout
-	}
-	if queue == nil {
-		queue = lfq.NewLockFreeQueue()
+type WriteAsyncer struct {
+	config  *Config
+	queue   QueueInterface
+	writer  io.Writer
+	bWriter *bufio.Writer
+	timer   atomic.Int64
+	once    sync.Once
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	state   Status
+}
+
+func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
+	if writer == nil {
+		writer = os.Stdout
 	}
 
-	wa := WriteAsyncer{
-		config: isConfigValid(conf),
-		queue:  queue,
-		writer: w,
-		timer:  atomic.Int64{},
-		once:   sync.Once{},
-		wg:     sync.WaitGroup{},
+	conf = isConfigValid(conf)
+
+	wa := &WriteAsyncer{
+		config:  conf,
+		queue:   lfq.NewLockFreeQueue(),
+		writer:  writer,
+		bWriter: bufio.NewWriterSize(writer, conf.buffsize),
+		state:   Status{},
+		timer:   atomic.Int64{},
+		once:    sync.Once{},
+		wg:      sync.WaitGroup{},
 	}
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
+	wa.state.executeAt.Store(time.Now().UnixMilli())
+	wa.state.running.Store(true)
 
-	wa.wg.Add(1)
+	wa.wg.Add(2)
 	go wa.poller()
+	go wa.updateTimer()
 
-	// 启动时间定时器
-	// start time timer.
-	wa.wg.Add(1)
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer func() {
-			ticker.Stop()
-			wa.wg.Done()
-		}()
-
-		for {
-			select {
-			case <-wa.ctx.Done():
-				return
-			case <-ticker.C:
-				wa.timer.Store(time.Now().UnixMilli())
-			}
-		}
-	}()
-
-	return &wa
+	return wa
 }
 
 func (wa *WriteAsyncer) Stop() {
 	wa.once.Do(func() {
+		wa.state.running.Store(false)
 		wa.cancel()
 		wa.wg.Wait()
+		wa.bWriter.Flush()
 	})
 }
 
 func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	wa.queue.Push(&Element{
-		buff:     p,
+		buffer:   p,
 		updateAt: wa.timer.Load(),
 	})
+	wa.config.callback.OnPushQueue(p)
+
 	return len(p), nil
 }
 
+func (wa *WriteAsyncer) bufferedWriter(p []byte) (int, error) {
+	wa.config.callback.OnWrite(p)
+	if len(p) > wa.bWriter.Available() && wa.bWriter.Buffered() > 0 {
+		if err := wa.bWriter.Flush(); err != nil {
+			return wa.writer.Write(p)
+		}
+	}
+	return wa.bWriter.Write(p)
+}
+
 func (wa *WriteAsyncer) poller() {
-	heartbeat := time.NewTicker(time.Millisecond * 500) // 心跳 (Heartbeat)
+	heartbeat := time.NewTicker(defaultHeartbeatInterval)
 
 	defer func() {
 		heartbeat.Stop()
@@ -95,20 +107,56 @@ func (wa *WriteAsyncer) poller() {
 	}()
 
 	executeFunc := func(element *Element) {
-
+		now := wa.timer.Load()
+		wa.state.executeAt.Store(now)
+		wa.config.callback.OnPopQueue(element.buffer, now-element.updateAt)
+		if _, err := wa.bufferedWriter(element.buffer); err != nil {
+			wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(element.buffer))
+		}
 	}
 
 	for {
 		select {
-		case <-wa.ctx.Done(): // 如果停止上下文被取消，则返回 (If the stop context is canceled, return)
+		case <-wa.ctx.Done():
+			for {
+				ln := wa.queue.Pop()
+				if ln == nil {
+					break
+				}
+				executeFunc(ln.(*Element))
+			}
 			return
 		default:
-			element := wa.queue.Pop() // 从队列中取出链表节点 (Pop list node from the queue)
-			if element != nil {       // 如果链表节点不为空，则执行 (If the list node is not empty, execute)
-				executeFunc(element.(*Element)) // 执行 (Execute)
+			element := wa.queue.Pop()
+			if element != nil {
+				executeFunc(element.(*Element))
 			} else {
-				<-heartbeat.C // 如果队列为空，则等待心跳 (If the queue is empty, wait for heartbeat)
+				<-heartbeat.C
+				now := wa.timer.Load()
+				if wa.bWriter.Buffered() > 0 && now-wa.state.executeAt.Load() > defaultIdleTimeout.Milliseconds() {
+					if err := wa.bWriter.Flush(); err != nil {
+						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
+					}
+					wa.state.executeAt.Store(now)
+				}
 			}
+		}
+	}
+}
+
+func (wa *WriteAsyncer) updateTimer() {
+	ticker := time.NewTicker(time.Second)
+	defer func() {
+		ticker.Stop()
+		wa.wg.Done()
+	}()
+
+	for {
+		select {
+		case <-wa.ctx.Done():
+			return
+		case <-ticker.C:
+			wa.timer.Store(time.Now().UnixMilli())
 		}
 	}
 }
