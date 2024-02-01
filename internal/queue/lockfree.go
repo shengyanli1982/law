@@ -5,21 +5,15 @@ import (
 	"unsafe"
 )
 
-// Element is an element of the queue.
 type Element struct {
-	// next is the next pointer.
-	next unsafe.Pointer
-
-	// value is the value of the element.
+	next  unsafe.Pointer
 	value interface{}
 }
 
-// LoadItem loads the element from the given pointer.
 func LoadItem(p *unsafe.Pointer) *Element {
 	return (*Element)(atomic.LoadPointer(p))
 }
 
-// CasItem compares and swaps the element in the given pointer.
 func CasItem(p *unsafe.Pointer, old, new *Element) bool {
 	return atomic.CompareAndSwapPointer(p, unsafe.Pointer(old), unsafe.Pointer(new))
 }
@@ -30,7 +24,6 @@ type LockFreeQueue struct {
 	length uint64
 }
 
-// NewLockFreeQueue creates a new lock-free queue.
 func NewLockFreeQueue() *LockFreeQueue {
 	head := Element{next: nil, value: nil}
 	return &LockFreeQueue{
@@ -40,7 +33,6 @@ func NewLockFreeQueue() *LockFreeQueue {
 	}
 }
 
-// Push adds a new element at the tail of the queue.
 func (q *LockFreeQueue) Push(value interface{}) {
 	newItem := &Element{next: nil, value: value}
 	for {
@@ -60,7 +52,6 @@ func (q *LockFreeQueue) Push(value interface{}) {
 	}
 }
 
-// Pop pop and returns the first element from the queue.
 func (q *LockFreeQueue) Pop() interface{} {
 	for {
 		head := LoadItem(&q.head)
@@ -83,12 +74,10 @@ func (q *LockFreeQueue) Pop() interface{} {
 	}
 }
 
-// Length returns the current length of the queue.
 func (q *LockFreeQueue) Length() uint64 {
 	return atomic.LoadUint64(&q.length)
 }
 
-// Reset resets the queue.
 func (q *LockFreeQueue) Reset() {
 	q.head = nil
 	q.tail = nil

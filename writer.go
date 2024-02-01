@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/shengyanli1982/law/internal/pool"
 	lfq "github.com/shengyanli1982/law/internal/queue"
 	"github.com/shengyanli1982/law/internal/util"
 )
@@ -23,22 +24,28 @@ type Element struct {
 	updateAt int64
 }
 
+func (e *Element) Reset() {
+	e.buffer = nil
+	e.updateAt = 0
+}
+
 type Status struct {
 	running   atomic.Bool
 	executeAt atomic.Int64
 }
 
 type WriteAsyncer struct {
-	config  *Config
-	queue   QueueInterface
-	writer  io.Writer
-	bWriter *bufio.Writer
-	timer   atomic.Int64
-	once    sync.Once
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	state   Status
+	config      *Config
+	queue       QueueInterface
+	writer      io.Writer
+	bWriter     *bufio.Writer
+	timer       atomic.Int64
+	once        sync.Once
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	state       Status
+	elementpool *pool.Pool
 }
 
 func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
@@ -49,14 +56,15 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	conf = isConfigValid(conf)
 
 	wa := &WriteAsyncer{
-		config:  conf,
-		queue:   lfq.NewLockFreeQueue(),
-		writer:  writer,
-		bWriter: bufio.NewWriterSize(writer, conf.buffsize),
-		state:   Status{},
-		timer:   atomic.Int64{},
-		once:    sync.Once{},
-		wg:      sync.WaitGroup{},
+		config:      conf,
+		queue:       lfq.NewLockFreeQueue(),
+		writer:      writer,
+		bWriter:     bufio.NewWriterSize(writer, conf.buffsize),
+		state:       Status{},
+		elementpool: pool.NewPool(func() any { return &Element{} }, lfq.NewLockFreeQueue()),
+		timer:       atomic.Int64{},
+		once:        sync.Once{},
+		wg:          sync.WaitGroup{},
 	}
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
 	wa.state.executeAt.Store(time.Now().UnixMilli())
@@ -79,12 +87,11 @@ func (wa *WriteAsyncer) Stop() {
 }
 
 func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
-	wa.queue.Push(&Element{
-		buffer:   p,
-		updateAt: wa.timer.Load(),
-	})
+	element := wa.elementpool.Get().(*Element)
+	element.buffer = p
+	element.updateAt = wa.timer.Load()
+	wa.queue.Push(element)
 	wa.config.callback.OnPushQueue(p)
-
 	return len(p), nil
 }
 
@@ -113,17 +120,19 @@ func (wa *WriteAsyncer) poller() {
 		if _, err := wa.bufferedWriter(element.buffer); err != nil {
 			wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(element.buffer))
 		}
+		element.Reset()
+		wa.elementpool.Put(element)
 	}
 
 	for {
 		select {
 		case <-wa.ctx.Done():
 			for {
-				ln := wa.queue.Pop()
-				if ln == nil {
+				element := wa.queue.Pop()
+				if element == nil {
 					break
 				}
-				executeFunc(ln.(*Element))
+				executeFunc(element.(*Element))
 			}
 			return
 		default:
