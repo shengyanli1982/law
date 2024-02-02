@@ -1,14 +1,16 @@
 <div align="center">
 	<h1>LAW</h1>
+	<p>A lightweight elevate I/O with Asynchronous io.Writer<p>
+	<p>Boost performance and efficiency effortlessly for logging, streaming, and more.</p>
 	<img src="assets/logo.png" alt="logo" width="300px">
-    <h4>A lightweight log asynchronous writer</h4>
+    
 </div>
 
 # Introduction
 
 **Log Asynchronous Writer** is a lightweight log asynchronous writer. It is designed to be used in high concurrency scenarios, such as HTTP servers, gRPC servers, etc.
 
-`LAW` has `double buffer` design which means that it can write data to the `deque` asynchronously, and then flush the bufferIO to the `io.Writer` when the buffer is full. Split the write action and data writing, which design can greatly improve the performance of the writer and reduce the pressure on the `io.Writer`.
+`LAW` has `double buffer` design which means that it can write data to the `deque` asynchronously, and then flush the buffer to the `io.Writer` when the buffer writer is full. Split the write action and data writing, which design can greatly improve the performance of the writer and reduce the pressure on the `io.Writer`.
 
 `LAW` is very simple, it only has two APIs: `Write` and `Stop`. `Write` is used to write log data to the buffer, and `Stop` is used to stop the writer.
 
@@ -360,6 +362,10 @@ $ go run demo.go
 
 Compare the performance of `LAW` with `BlackHoleWriter` and `zapcore.AddSync(BlackHoleWriter)`.
 
+Since version `v0.1.2` `LAW` has been optimized and the performance has been improved.
+
+**Before v0.1.2**
+
 ```bash
 # go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
 
@@ -375,9 +381,26 @@ BenchmarkZapAsyncWriter-8            	  481237	      2133 ns/op	     932 B/op	  
 BenchmarkZapAsyncWriterParallel-8    	 1453645	       865.7 ns/op	    2074 B/op	       3 allocs/op
 ```
 
-`LAW` use `double buffer` to write log data, so the performance of `LAW` maybe not as good as `zapcore.AddSync(BlackHoleWriter)`.
+**After**
 
-`LAW` use `deque` + `sync.Pool` to store log data and `bufio` will let test result not good. Or maybe benchmark code is not good enough, if you have better benchmark code, please let me know.
+```bash
+# go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
+
+goos: darwin
+goarch: amd64
+pkg: github.com/shengyanli1982/law/benchmark
+cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
+BenchmarkBlackHoleWriter-12            	1000000000	         0.2796 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBlackHoleWriterParallel-12    	1000000000	         0.2156 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLogAsyncWriter-12             	 5184232	       268.9 ns/op	      61 B/op	       3 allocs/op
+BenchmarkLogAsyncWriterParallel-12     	 4275908	       244.5 ns/op	      58 B/op	       3 allocs/op
+BenchmarkZapSyncWriter-12              	 3242724	       341.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapSyncWriterParallel-12      	21295935	        60.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapAsyncWriter-12             	 2179002	       694.4 ns/op	      62 B/op	       2 allocs/op
+BenchmarkZapAsyncWriterParallel-12     	 5183258	       387.7 ns/op	      73 B/op	       2 allocs/op
+```
+
+`LAW` employs a `double buffer` strategy for logging, potentially leading to slightly lower performance compared to `zapcore.AddSync(BlackHoleWriter)`. This is because `zap`, integrating with `LAW`, utilizes zap's writer buffer not directly. `zap` give the data to `LAW`, through a `deque` before flushing to `io.Writer` (`BlackHoleWriter`), resulting in its performance being the sum of `BenchmarkZapSyncWriter` and `BenchmarkLogAsyncWriter`, equivalent to `BenchmarkZapAsyncWriter`.
 
 ## 2. Http Server
 

@@ -59,17 +59,17 @@ type Status struct {
 // WriteAsyncer 是一个异步写入器
 // WriteAsyncer is an async writer
 type WriteAsyncer struct {
-	config         *Config
-	queue          QueueInterface
-	writer         io.Writer
-	bufferedWriter *bufio.Writer
-	timer          atomic.Int64
-	once           sync.Once
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	state          Status
-	elementpool    *pool.Pool
+	config         *Config            // 配置信息
+	queue          QueueInterface     // 队列接口
+	writer         io.Writer          // 写入器
+	bufferedWriter *bufio.Writer      // 带缓冲的写入器
+	timer          atomic.Int64       // 计时器
+	once           sync.Once          // 一次性执行
+	ctx            context.Context    // 上下文
+	cancel         context.CancelFunc // 取消函数
+	wg             sync.WaitGroup     // 等待组
+	state          Status             // 状态
+	elementpool    *pool.Pool         // 元素池
 }
 
 // NewWriteAsyncer 返回一个 WriteAsyncer 实例
@@ -227,17 +227,30 @@ func (wa *WriteAsyncer) poller() {
 			// Then check if elementpool needs to be pruned.
 			elem := wa.queue.Pop()
 			if elem != nil {
+				// 如果元素不为空就执行 executeFunc
+				// If the element is not empty, execute executeFunc
 				executeFunc(elem.(*Element))
 			} else {
+				// 如果没有元素，就等待心跳信号
+				// If there is no element, wait for the heartbeat signal
 				<-heartbeat.C
+
+				// 获取当前时间戳，计算 diff
+				// Get the current timestamp and calculate diff
 				now := wa.timer.Load()
 				diff := now - wa.state.executeAt.Load()
+
+				// 如果 bufferedWriter 中有数据，并且 diff 大于默认的空闲超时时间，就 flush bufferedWriter
+				// If there is data in bufferedWriter and diff is greater than the default idle timeout, flush bufferedWriter
 				if wa.bufferedWriter.Buffered() > 0 && diff > defaultIdleTimeout.Milliseconds() {
 					if err := wa.bufferedWriter.Flush(); err != nil {
 						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
 					}
 					wa.state.executeAt.Store(now)
 				}
+
+				// 如果 diff 大于默认的空闲超时时间的 6 倍，就 prune elementpool
+				// If diff is greater than 6 times the default idle timeout, prune elementpool
 				if diff > defaultIdleTimeout.Milliseconds()*6 {
 					wa.elementpool.Prune()
 				}
@@ -250,6 +263,7 @@ func (wa *WriteAsyncer) poller() {
 // updateTimer is a timer that updates the timestamp of WriteAsyncer
 func (wa *WriteAsyncer) updateTimer() {
 	ticker := time.NewTicker(time.Second)
+
 	defer func() {
 		ticker.Stop()
 		wa.wg.Done()
