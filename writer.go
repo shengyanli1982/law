@@ -3,244 +3,278 @@ package law
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
-	"log"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	buf "github.com/shengyanli1982/law/internal/buffer"
-	list "github.com/shengyanli1982/law/internal/stl/deque"
+	"github.com/shengyanli1982/law/internal/pool"
+	lfq "github.com/shengyanli1982/law/internal/queue"
+	lfs "github.com/shengyanli1982/law/internal/stack"
 	"github.com/shengyanli1982/law/internal/util"
 )
 
 const (
-	defaultIdleTimeout = 5 * time.Second // 默认空闲时间为5秒 (Default idle timeout is 5 seconds)
+	// defaultHeartbeatInterval 是 poller 检查队列的默认间隔
+	// defaultHeartbeatInterval is the default interval for the poller to check the queue
+	defaultHeartbeatInterval = 500 * time.Millisecond
+
+	// defaultIdleTimeout 是 poller 的默认空闲超时时间
+	// defaultIdleTimeout is the default idle timeout for the poller
+	defaultIdleTimeout = 5 * time.Second
 )
 
-type Config struct {
-	bfsize int      // 缓冲区大小 (Buffer size)
-	cb     Callback // 回调函数 (Callback function)
+// ErrorWriteAsyncerIsClosed 表示 WriteAsyncer 已经关闭
+// ErrorWriteAsyncerIsClosed indicates that WriteAsyncer has been closed
+var ErrorWriteAsyncerIsClosed = errors.New("write asyncer is closed")
+
+// Element 是队列中的元素
+// Element is the element in the queue
+type Element struct {
+	buffer   []byte
+	updateAt int64
 }
 
-// 创建一个配置对象 (Create a new Config object)
-func NewConfig() *Config {
-	return &Config{bfsize: 0, cb: &emptyCallback{}}
+// Reset 重置元素
+// Reset resets the element
+func (e *Element) Reset() {
+	e.buffer = nil
+	e.updateAt = 0
 }
 
-// 设置缓冲区大小 (Set the buffer size)
-func (c *Config) WithBufferSize(size int) *Config {
-	c.bfsize = size
-	return c
+// Status 是 WriteAsyncer 的状态
+// Status is the status of WriteAsyncer
+type Status struct {
+	// running 表示 WriteAsyncer 是否在运行
+	// running indicates whether WriteAsyncer is running
+	running atomic.Bool
+
+	// executeAt 表示上次执行的时间
+	// executeAt indicates the last time of execution
+	executeAt atomic.Int64
 }
 
-// 设置回调函数 (Set the callback function)
-func (c *Config) WithCallback(cb Callback) *Config {
-	c.cb = cb
-	return c
-}
-
+// WriteAsyncer 是一个异步写入器
+// WriteAsyncer is an async writer
 type WriteAsyncer struct {
-	closed         atomic.Bool          // 标识写入器是否关闭 (Indicates whether the writer is closed)
-	bufferPool     *buf.ExtraBufferPool // 缓冲区池 (Buffer pool)
-	writer         io.Writer            // 底层的写入器 (Underlying writer)
-	bufferIoWriter *bufio.Writer        // 缓冲IO写入器 (Buffered IO writer)
-	bufferIoLock   sync.Mutex           // 缓冲IO写入器锁 (Lock for buffered IO writer)
-	listNodePool   *list.ListNodePool   // 链表节点池 (List node pool)
-	once           sync.Once            // 用于确保只执行一次的同步对象 (Synchronization object to ensure only one execution)
-	stopCtx        context.Context      // 停止上下文 (Stop context)
-	stopCancel     context.CancelFunc   // 停止取消函数 (Stop cancel function)
-	wg             sync.WaitGroup       // 等待组 (Wait group)
-	queue          *list.Deque          // 队列 (Queue)
-	queueLock      sync.Mutex           // 队列锁 (Queue lock)
-	config         *Config              // 配置 (Configuration)
-	idleAt         atomic.Int64         // 空闲时间戳 (Idle timestamp)
+	config         *Config            // 配置信息
+	queue          QueueInterface     // 队列接口
+	writer         io.Writer          // 写入器
+	bufferedWriter *bufio.Writer      // 带缓冲的写入器
+	timer          atomic.Int64       // 计时器
+	once           sync.Once          // 一次性执行
+	ctx            context.Context    // 上下文
+	cancel         context.CancelFunc // 取消函数
+	wg             sync.WaitGroup     // 等待组
+	state          Status             // 状态
+	elementpool    *pool.Pool         // 元素池
 }
 
-// 创建一个异步 writer (Create a new asynchronous writer)
-func NewWriteAsyncer(w io.Writer, conf *Config) *WriteAsyncer {
-	if w == nil {
-		w = os.Stdout
+// NewWriteAsyncer 返回一个 WriteAsyncer 实例
+// NewWriteAsyncer returns an instance of WriteAsyncer
+func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
+	// 如果 writer 为空，则使用 os.Stdout
+	// If writer is nil, use os.Stdout
+	if writer == nil {
+		writer = os.Stdout
 	}
 
+	// 判断 conf 配置内容是否有效
+	// Check if the conf configuration is valid
+	conf = isConfigValid(conf)
+
+	// 初始化 WriteAsyncer 实例
+	// Initialize the WriteAsyncer instance
 	wa := &WriteAsyncer{
-		closed:         atomic.Bool{},
-		writer:         w,
-		bufferIoWriter: bufio.NewWriterSize(w, buf.DefaultBufferSize),
-		bufferIoLock:   sync.Mutex{},
-		queue:          list.NewDeque(),
-		queueLock:      sync.Mutex{},
+		config:         conf,
+		queue:          lfq.NewLockFreeQueue(),
+		writer:         writer,
+		bufferedWriter: bufio.NewWriterSize(writer, conf.buffsize),
+		state:          Status{},
+		elementpool:    pool.NewPool(func() any { return &Element{} }, lfs.NewLockFreeStack()),
+		timer:          atomic.Int64{},
 		once:           sync.Once{},
 		wg:             sync.WaitGroup{},
-		config:         conf,
-		idleAt:         atomic.Int64{},
 	}
+	wa.ctx, wa.cancel = context.WithCancel(context.Background())
+	wa.state.executeAt.Store(time.Now().UnixMilli())
+	wa.state.running.Store(true)
 
-	wa.isConfigValid()
-
-	wa.stopCtx, wa.stopCancel = context.WithCancel(context.Background())
-	wa.bufferPool = buf.NewExtraBufferPool(wa.config.bfsize)
-	wa.listNodePool = list.NewListNodePool()
-	wa.idleAt.Store(time.Now().UnixMilli())
-
+	// 启动 poller 和 updateTimer
+	// Start poller and updateTimer
 	wa.wg.Add(2)
 	go wa.poller()
-	go wa.bufferIoWriterRefresh()
+	go wa.updateTimer()
 
 	return wa
 }
 
-// 创建一个默认的异步 writer (Create a new asynchronous writer with default config)
-func DefaultWriteAsyncer() Writer {
-	return NewWriteAsyncer(os.Stdout, nil)
-}
-
-// 将异步 writer 包装成 Writer (Wrap the asynchronous writer into Writer interface)
-func WriteAsyncerWrapper(w *WriteAsyncer) Writer {
-	return w
-}
-
-// 检查配置是否有效，如果无效，设置默认值 (Check if the config is valid, if not, set the default value)
-func (wa *WriteAsyncer) isConfigValid() {
-	if wa.config == nil {
-		wa.config = NewConfig().WithBufferSize(buf.DefaultBufferSize).WithCallback(&emptyCallback{})
-	} else {
-		if wa.config.bfsize <= buf.DefaultBufferSize {
-			wa.config.bfsize = buf.DefaultBufferSize
-		}
-		if wa.config.cb == nil {
-			wa.config.cb = &emptyCallback{}
-		}
-	}
-}
-
-// 关闭写入器，停止刷新缓冲区和写入队列 (Stop the writer, flush the buffer and write queue)
+// Stop 停止 WriteAsyncer
+// Stop stops WriteAsyncer
 func (wa *WriteAsyncer) Stop() {
 	wa.once.Do(func() {
-		wa.closed.Store(true)
-		wa.stopCancel()
+		wa.state.running.Store(false)
+		wa.cancel()
 		wa.wg.Wait()
-		wa.bufferIoLock.Lock()
-		wa.bufferIoWriter.Flush()
-		wa.bufferIoLock.Unlock()
+		wa.bufferedWriter.Flush()
 	})
 }
 
-// 从队列中取出日志，写入到底层的 writer 中 (Poll log entries from the queue and write to the underlying writer)
-func (wa *WriteAsyncer) poller() {
-	heartbeat := time.NewTicker(time.Millisecond * 500) // 心跳 (Heartbeat)
-
-	defer func() {
-		heartbeat.Stop()
-		wa.wg.Done()
-	}()
-
-	// 执行读取从链表中读取，并写入到底层的 writer 中 (Execute reading from the list and write to the underlying writer)
-	exec := func(ln *list.Node) {
-		eb := ln.Data().(*buf.ExtraBuffer)                // 从链表节点中获取缓冲区 (Get buffer from the list node)
-		bytes := eb.Buffer().Bytes()                      // 从缓冲区中获取日志 (Get log entries from the buffer)
-		now := time.Now().UnixMilli()                     // 获取当前时间戳 (Get current timestamp)
-		wa.config.cb.OnPopQueue(bytes, now-eb.UpdateAt()) // 回调函数 (Callback function)
-
-		wa.bufferIoLock.Lock()
-		_, err := wa.buffWriter(bytes) // 将日志写入到底层的 writer 中 (Write log entries to the underlying writer)
-		wa.bufferIoLock.Unlock()
-
-		if err != nil { // 如果写入失败，则打印日志 (If write failed, print log)
-			log.Printf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(bytes))
-		}
-
-		wa.idleAt.Store(now)    // 设置空闲时间 (Set idle time)
-		wa.listNodePool.Put(ln) // 将链表节点放回链表节点池中 (Put list node back into the list node pool)
-		wa.bufferPool.Put(eb)   // 将缓冲区放回缓冲区池中 (Put buffer back into the buffer pool)
+// Write 实现了 io.Writer 接口
+// Write implements the io.Writer interface
+func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
+	// 如果 WriteAsyncer 已经关闭，就返回错误
+	// If WriteAsyncer has been closed, return an error
+	if !wa.state.running.Load() {
+		return 0, ErrorWriteAsyncerIsClosed
 	}
 
-	// 循环处理 (Loop processing)
-	for {
-		select {
-		case <-wa.stopCtx.Done(): // 如果停止上下文被取消，则返回 (If the stop context is canceled, return)
-			wa.queueLock.Lock()
-			for {
-				ln := wa.queue.Pop() // 从队列中取出链表节点 (Pop list node from the queue)
-				if ln == nil {       // 如果链表节点为空，则退出 (If the list node is empty, exit)
-					break
-				}
-				wa.queueLock.Unlock()
-				exec(ln) // 执行 (Execute)
-				wa.queueLock.Lock()
-			}
-			wa.queueLock.Unlock()
-			return
-		default: // 如果队列不为空，则从队列中取出数据 (If the queue is not empty, poll log entries from the queue)
-			wa.queueLock.Lock()
-			ln := wa.queue.Pop() // 从队列中取出链表节点 (Pop list node from the queue)
-			wa.queueLock.Unlock()
-			if ln != nil { // 如果链表节点不为空，则执行 (If the list node is not empty, execute)
-				exec(ln) // 执行 (Execute)
-			} else {
-				<-heartbeat.C // 如果队列为空，则等待心跳 (If the queue is empty, wait for heartbeat)
-			}
-		}
-	}
-}
+	// 从资源池中获取元素，并更新元素数据
+	// Get the element from the resource pool and update the element data
+	element := wa.elementpool.Get().(*Element)
+	element.buffer = p
+	element.updateAt = wa.timer.Load()
 
-// 刷新缓冲区 (Flush the buffer)
-func (wa *WriteAsyncer) bufferIoWriterRefresh() {
-	heartbeat := time.NewTicker(time.Second) // 心跳 (Heartbeat)
+	// 将数据写入到队列中
+	// Write data to the queue
+	wa.queue.Push(element)
 
-	defer func() {
-		heartbeat.Stop()
-		wa.wg.Done()
-	}()
-
-	// 循环处理 (Loop processing)
-	for {
-		select {
-		case <-wa.stopCtx.Done():
-			return
-		case <-heartbeat.C:
-			wa.bufferIoLock.Lock()
-			// 如果缓冲区有数据，并且空闲时间超过默认空闲时间，则刷新缓冲区 (If the buffer has data and the idle time exceeds the default idle time, flush the buffer)
-			if wa.bufferIoWriter.Buffered() > 0 && time.Now().UnixMilli()-wa.idleAt.Load() > defaultIdleTimeout.Milliseconds() {
-				if err := wa.bufferIoWriter.Flush(); err != nil { // 刷新缓冲区 (Flush the buffer)
-					log.Printf("buffer io writer flush error, error: %s", err.Error())
-				}
-				wa.idleAt.Store(time.Now().UnixMilli()) // 设置空闲时间 (Set idle time)
-			}
-			wa.bufferIoLock.Unlock()
-		}
-	}
-}
-
-// 缓冲写入器 (Buffered writer)
-func (wa *WriteAsyncer) buffWriter(p []byte) (int, error) {
-	wa.config.cb.OnWrite(p)                                                         // 回调函数 (Callback function)
-	if len(p) > wa.bufferIoWriter.Available() && wa.bufferIoWriter.Buffered() > 0 { // 如果日志长度大于缓冲区可用长度，并且缓冲区有数据 (If the log length is greater than the available length of the buffer and the buffer has data)
-		if err := wa.bufferIoWriter.Flush(); err != nil { // 刷新缓冲区 (Flush the buffer)
-			return wa.writer.Write(p) // 将日志写入到底层的 writer 中 (Write log entries to the underlying writer)
-		}
-	}
-	return wa.bufferIoWriter.Write(p) // 将日志写入到缓冲区 (Write log entries to the buffer)
-}
-
-// 将日志写入到队列中 (Push log entries into the queue)
-func (wa *WriteAsyncer) Write(p []byte) (int, error) {
-	if wa.closed.Load() {
-		return 0, ErrorWriterIsClosed
-	}
-
-	eb := wa.bufferPool.Get()              // 从缓冲区池中获取缓冲区 (Get buffer from the buffer pool)
-	eb.Buffer().Write(p)                   // 将日志写入到缓冲区 (Write log entries into the buffer)
-	eb.SetUpdateAt(time.Now().UnixMilli()) // 设置更新时间 (Set update time)
-	ln := wa.listNodePool.Get()            // 从链表节点池中获取链表节点 (Get list node from the list node pool)
-	ln.SetData(eb)                         // 设置链表节点数据 (Set list node data)
-
-	wa.config.cb.OnPushQueue(p) // 回调函数 (Callback function)
-
-	wa.queueLock.Lock()
-	wa.queue.Push(ln) // 将链表节点放入队列 (Put list node into the queue)
-	wa.queueLock.Unlock()
+	// 调用回调方法
+	// Call the callback method
+	wa.config.callback.OnPushQueue(p)
 
 	return len(p), nil
+}
+
+// flushBufferedWriter 将缓冲区中的数据写入到底层 io.Writer
+// flushBufferedWriter writes the data in the buffer to the underlying io.Writer
+func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
+	wa.config.callback.OnWrite(p)
+	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
+		if err := wa.bufferedWriter.Flush(); err != nil {
+			return wa.writer.Write(p)
+		}
+	}
+	return wa.bufferedWriter.Write(p)
+}
+
+// poller 是一个轮询器，用于检查队列中的数据并将其写入到底层 io.Writer
+// poller is a poller that checks the data in the queue and writes it to the underlying io.Writer
+func (wa *WriteAsyncer) poller() {
+	// 启动心跳检测
+	// Start heartbeat detection
+	heartbeat := time.NewTicker(defaultHeartbeatInterval)
+
+	// 定义退出机制
+	// Define the exit mechanism
+	defer func() {
+		heartbeat.Stop()
+		wa.wg.Done()
+	}()
+
+	// executeFunc 是 poller 的执行函数
+	// executeFunc is the execution function of the poller
+	executeFunc := func(e *Element) {
+		now := wa.timer.Load()
+		wa.state.executeAt.Store(now)
+
+		// 调用回调方法
+		// Call the callback method
+		wa.config.callback.OnPopQueue(e.buffer, now-e.updateAt)
+
+		// 将 buffer 中的内容写入到底层 io.Writer，如果有错误就是调用 logger 的 Errorf 方法
+		// Write the content in the buffer to the underlying io.Writer, if there is an error, call the Errorf method of logger
+		if _, err := wa.flushBufferedWriter(e.buffer); err != nil {
+			wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(e.buffer))
+		}
+
+		// 重置元素，并归还资源池
+		// Reset the element and return it to the resource pool
+		e.Reset()
+		wa.elementpool.Put(e)
+	}
+
+	// 循环检查队列中的数据
+	// Loop to check the data in the queue
+	for {
+		select {
+		case <-wa.ctx.Done():
+			// 如果 ctx 被取消，就将队列中的数据全部写入到底层 io.Writer
+			// If ctx is canceled, write all the data in the queue to the underlying io.Writer
+			for {
+				elem := wa.queue.Pop()
+				if elem == nil {
+					break
+				}
+				executeFunc(elem.(*Element))
+			}
+			return
+
+		default:
+			// 如果 WriteAsyncer 已经关闭，就退出
+			// If WriteAsyncer has been closed, exit
+			if !wa.state.running.Load() {
+				return
+			}
+
+			// 从队列中取出元素，如果元素不为空就执行 executeFunc。
+			// 否则 sleep 一段时间，判断 bufferedWriter 是否有数据，如果有就 flush。
+			// 随后判断是否需要 prune elementpool。
+			// Pop an element from the queue, if the element is not empty, execute executeFunc.
+			// Otherwise, sleep for a period of time, check if bufferedWriter has data, if so, flush.
+			// Then check if elementpool needs to be pruned.
+			elem := wa.queue.Pop()
+			if elem != nil {
+				// 如果元素不为空就执行 executeFunc
+				// If the element is not empty, execute executeFunc
+				executeFunc(elem.(*Element))
+			} else {
+				// 如果没有元素，就等待心跳信号
+				// If there is no element, wait for the heartbeat signal
+				<-heartbeat.C
+
+				// 获取当前时间戳，计算 diff
+				// Get the current timestamp and calculate diff
+				now := wa.timer.Load()
+				diff := now - wa.state.executeAt.Load()
+
+				// 如果 bufferedWriter 中有数据，并且 diff 大于默认的空闲超时时间，就 flush bufferedWriter
+				// If there is data in bufferedWriter and diff is greater than the default idle timeout, flush bufferedWriter
+				if wa.bufferedWriter.Buffered() > 0 && diff > defaultIdleTimeout.Milliseconds() {
+					if err := wa.bufferedWriter.Flush(); err != nil {
+						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
+					}
+					wa.state.executeAt.Store(now)
+				}
+
+				// 如果 diff 大于默认的空闲超时时间的 6 倍，就 prune elementpool
+				// If diff is greater than 6 times the default idle timeout, prune elementpool
+				if diff > defaultIdleTimeout.Milliseconds()*6 {
+					wa.elementpool.Prune()
+				}
+			}
+		}
+	}
+}
+
+// updateTimer 是一个定时器，用于更新 WriteAsyncer 的时间戳
+// updateTimer is a timer that updates the timestamp of WriteAsyncer
+func (wa *WriteAsyncer) updateTimer() {
+	ticker := time.NewTicker(time.Second)
+
+	defer func() {
+		ticker.Stop()
+		wa.wg.Done()
+	}()
+
+	for {
+		select {
+		case <-wa.ctx.Done():
+			return
+		case <-ticker.C:
+			wa.timer.Store(time.Now().UnixMilli())
+		}
+	}
 }

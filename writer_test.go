@@ -68,7 +68,7 @@ func TestWriteAsyncer_Callback(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.cb.(*callback).a0)
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.cb.(*callback).a1)
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.cb.(*callback).a2)
+	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a0)
+	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a1)
+	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a2)
 }

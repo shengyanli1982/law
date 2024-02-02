@@ -41,6 +41,35 @@ func BenchmarkBlackHoleWriterParallel(b *testing.B) {
 		}
 	})
 }
+func BenchmarkLogAsyncWriter(b *testing.B) {
+	w := xu.BlackHoleWriter{}
+
+	aw := x.NewWriteAsyncer(&w, nil)
+	defer aw.Stop()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = aw.Write([]byte("hello"))
+	}
+}
+
+func BenchmarkLogAsyncWriterParallel(b *testing.B) {
+	w := xu.BlackHoleWriter{}
+
+	aw := x.NewWriteAsyncer(&w, nil)
+	defer aw.Stop()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = aw.Write([]byte("hello"))
+		}
+	})
+}
 
 func BenchmarkZapSyncWriter(b *testing.B) {
 	w := xu.BlackHoleWriter{}

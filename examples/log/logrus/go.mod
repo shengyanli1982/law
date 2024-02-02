@@ -1,6 +1,8 @@
-module github.com/shengyanli1982/law/examples/http/server/syncwriter
+module github.com/shengyanli1982/law/examples/log/logrus
 
 go 1.19
+
+replace github.com/shengyanli1982/law => ../../../
 
 require (
 	github.com/shengyanli1982/law v0.0.0-00010101000000-000000000000
@@ -8,5 +10,3 @@ require (
 )
 
 require golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
-
-replace github.com/shengyanli1982/law => ../../../
