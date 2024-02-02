@@ -362,9 +362,9 @@ $ go run demo.go
 
 Compare the performance of `LAW` with `BlackHoleWriter` and `zapcore.AddSync(BlackHoleWriter)`.
 
-Since version `v0.1.2` `LAW` has been optimized and the performance has been improved.
+Since version `v0.1.3`, the `LAW` codes has been optimized and the performance has been improved.
 
-**Before v0.1.2**
+**Before**
 
 ```bash
 # go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
