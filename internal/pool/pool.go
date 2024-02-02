@@ -2,27 +2,28 @@ package pool
 
 type NewFunc = func() any
 
-type QueueInterface interface {
+type StackInterface interface {
 	Push(value any)
 	Pop() any
+	Len() uint64
 }
 
 type Pool struct {
 	newFunc NewFunc
-	queue   QueueInterface
+	stack   StackInterface
 }
 
-func NewPool(newFunc NewFunc, queue QueueInterface) *Pool {
+func NewPool(newFunc NewFunc, queue StackInterface) *Pool {
 	p := Pool{
 		newFunc: newFunc,
-		queue:   queue,
+		stack:   queue,
 	}
 
 	return &p
 }
 
 func (p *Pool) Get() any {
-	v := p.queue.Pop()
+	v := p.stack.Pop()
 	if v == nil {
 		return p.newFunc()
 	}
@@ -30,5 +31,12 @@ func (p *Pool) Get() any {
 }
 
 func (p *Pool) Put(v any) {
-	p.queue.Push(v)
+	p.stack.Push(v)
+}
+
+func (p *Pool) Prune() {
+	count := uint64(float64(p.stack.Len()) * 0.33)
+	for i := uint64(0); i < count; i++ {
+		_ = p.stack.Pop()
+	}
 }

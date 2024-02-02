@@ -27,9 +27,8 @@ type LockFreeQueue struct {
 func NewLockFreeQueue() *LockFreeQueue {
 	head := Element{next: nil, value: nil}
 	return &LockFreeQueue{
-		tail:   unsafe.Pointer(&head),
-		head:   unsafe.Pointer(&head),
-		length: 0,
+		tail: unsafe.Pointer(&head),
+		head: unsafe.Pointer(&head),
 	}
 }
 
@@ -74,12 +73,13 @@ func (q *LockFreeQueue) Pop() interface{} {
 	}
 }
 
-func (q *LockFreeQueue) Length() uint64 {
+func (q *LockFreeQueue) Len() uint64 {
 	return atomic.LoadUint64(&q.length)
 }
 
 func (q *LockFreeQueue) Reset() {
-	q.head = nil
-	q.tail = nil
-	q.length = 0
+	head := Element{next: nil, value: nil}
+	q.head = unsafe.Pointer(&head)
+	q.tail = unsafe.Pointer(&head)
+	atomic.StoreUint64(&q.length, 0)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/shengyanli1982/law/internal/pool"
 	lfq "github.com/shengyanli1982/law/internal/queue"
+	lfs "github.com/shengyanli1982/law/internal/stack"
 	"github.com/shengyanli1982/law/internal/util"
 )
 
@@ -35,17 +36,17 @@ type Status struct {
 }
 
 type WriteAsyncer struct {
-	config      *Config
-	queue       QueueInterface
-	writer      io.Writer
-	bWriter     *bufio.Writer
-	timer       atomic.Int64
-	once        sync.Once
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	state       Status
-	elementpool *pool.Pool
+	config         *Config
+	queue          QueueInterface
+	writer         io.Writer
+	bufferedWriter *bufio.Writer
+	timer          atomic.Int64
+	once           sync.Once
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	state          Status
+	elementpool    *pool.Pool
 }
 
 func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
@@ -56,15 +57,15 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	conf = isConfigValid(conf)
 
 	wa := &WriteAsyncer{
-		config:      conf,
-		queue:       lfq.NewLockFreeQueue(),
-		writer:      writer,
-		bWriter:     bufio.NewWriterSize(writer, conf.buffsize),
-		state:       Status{},
-		elementpool: pool.NewPool(func() any { return &Element{} }, lfq.NewLockFreeQueue()),
-		timer:       atomic.Int64{},
-		once:        sync.Once{},
-		wg:          sync.WaitGroup{},
+		config:         conf,
+		queue:          lfq.NewLockFreeQueue(),
+		writer:         writer,
+		bufferedWriter: bufio.NewWriterSize(writer, conf.buffsize),
+		state:          Status{},
+		elementpool:    pool.NewPool(func() any { return &Element{} }, lfs.NewLockFreeStack()),
+		timer:          atomic.Int64{},
+		once:           sync.Once{},
+		wg:             sync.WaitGroup{},
 	}
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
 	wa.state.executeAt.Store(time.Now().UnixMilli())
@@ -82,7 +83,7 @@ func (wa *WriteAsyncer) Stop() {
 		wa.state.running.Store(false)
 		wa.cancel()
 		wa.wg.Wait()
-		wa.bWriter.Flush()
+		wa.bufferedWriter.Flush()
 	})
 }
 
@@ -95,14 +96,14 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (wa *WriteAsyncer) bufferedWriter(p []byte) (int, error) {
+func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 	wa.config.callback.OnWrite(p)
-	if len(p) > wa.bWriter.Available() && wa.bWriter.Buffered() > 0 {
-		if err := wa.bWriter.Flush(); err != nil {
+	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
+		if err := wa.bufferedWriter.Flush(); err != nil {
 			return wa.writer.Write(p)
 		}
 	}
-	return wa.bWriter.Write(p)
+	return wa.bufferedWriter.Write(p)
 }
 
 func (wa *WriteAsyncer) poller() {
@@ -113,40 +114,44 @@ func (wa *WriteAsyncer) poller() {
 		wa.wg.Done()
 	}()
 
-	executeFunc := func(element *Element) {
+	executeFunc := func(e *Element) {
 		now := wa.timer.Load()
 		wa.state.executeAt.Store(now)
-		wa.config.callback.OnPopQueue(element.buffer, now-element.updateAt)
-		if _, err := wa.bufferedWriter(element.buffer); err != nil {
-			wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(element.buffer))
+		wa.config.callback.OnPopQueue(e.buffer, now-e.updateAt)
+		if _, err := wa.flushBufferedWriter(e.buffer); err != nil {
+			wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(e.buffer))
 		}
-		element.Reset()
-		wa.elementpool.Put(element)
+		e.Reset()
+		wa.elementpool.Put(e)
 	}
 
 	for {
 		select {
 		case <-wa.ctx.Done():
 			for {
-				element := wa.queue.Pop()
-				if element == nil {
+				elem := wa.queue.Pop()
+				if elem == nil {
 					break
 				}
-				executeFunc(element.(*Element))
+				executeFunc(elem.(*Element))
 			}
 			return
 		default:
-			element := wa.queue.Pop()
-			if element != nil {
-				executeFunc(element.(*Element))
+			elem := wa.queue.Pop()
+			if elem != nil {
+				executeFunc(elem.(*Element))
 			} else {
 				<-heartbeat.C
 				now := wa.timer.Load()
-				if wa.bWriter.Buffered() > 0 && now-wa.state.executeAt.Load() > defaultIdleTimeout.Milliseconds() {
-					if err := wa.bWriter.Flush(); err != nil {
+				diff := now - wa.state.executeAt.Load()
+				if wa.bufferedWriter.Buffered() > 0 && diff > defaultIdleTimeout.Milliseconds() {
+					if err := wa.bufferedWriter.Flush(); err != nil {
 						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
 					}
 					wa.state.executeAt.Store(now)
+				}
+				if diff > defaultIdleTimeout.Milliseconds()*6 {
+					wa.elementpool.Prune()
 				}
 			}
 		}

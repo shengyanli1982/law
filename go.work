@@ -7,4 +7,5 @@ use (
 	./examples/log/logrus
 	./examples/log/zap
 	./examples/log/zerolog
+	./benchmark
 )
