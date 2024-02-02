@@ -1,10 +1,10 @@
 package pool
 
-type NewFunc = func() any
+type NewFunc = func() interface{}
 
 type StackInterface interface {
-	Push(value any)
-	Pop() any
+	Push(value interface{})
+	Pop() interface{}
 	Len() uint64
 }
 
@@ -13,16 +13,16 @@ type Pool struct {
 	stack   StackInterface
 }
 
-func NewPool(newFunc NewFunc, queue StackInterface) *Pool {
+func NewPool(newFunc NewFunc, stack StackInterface) *Pool {
 	p := Pool{
 		newFunc: newFunc,
-		stack:   queue,
+		stack:   stack,
 	}
 
 	return &p
 }
 
-func (p *Pool) Get() any {
+func (p *Pool) Get() interface{} {
 	v := p.stack.Pop()
 	if v == nil {
 		return p.newFunc()
@@ -30,7 +30,7 @@ func (p *Pool) Get() any {
 	return v
 }
 
-func (p *Pool) Put(v any) {
+func (p *Pool) Put(v interface{}) {
 	p.stack.Push(v)
 }
 

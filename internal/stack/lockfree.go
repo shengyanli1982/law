@@ -17,7 +17,7 @@ type LockFreeStack struct {
 
 func NewLockFreeStack() *LockFreeStack {
 	return &LockFreeStack{
-		top: unsafe.Pointer(&Element{next: nil, value: nil}),
+		top: unsafe.Pointer(&Element{}),
 	}
 }
 
@@ -57,6 +57,6 @@ func (s *LockFreeStack) Len() uint64 {
 }
 
 func (s *LockFreeStack) Reset() {
-	s.top = unsafe.Pointer(&Element{next: nil, value: nil})
+	s.top = unsafe.Pointer(&Element{})
 	atomic.StoreUint64(&s.length, 0)
 }
