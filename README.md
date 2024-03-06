@@ -8,22 +8,21 @@
 
 # Introduction
 
-**Log Asynchronous Writer** is a lightweight log asynchronous writer. It is designed to be used in high concurrency scenarios, such as HTTP servers, gRPC servers, etc.
+**Log Asynchronous Writer** is a lightweight log asynchronous writer designed for high concurrency scenarios, such as HTTP servers and gRPC servers.
 
-`LAW` has `double buffer` design which means that it can write data to the `deque` asynchronously, and then flush the buffer to the `io.Writer` when the buffer writer is full. Split the write action and data writing, which design can greatly improve the performance of the writer and reduce the pressure on the `io.Writer`.
+`LAW` utilizes a `double buffer` design, allowing it to write data to the `deque` asynchronously and flush the buffer to the `io.Writer` when it is full. This design significantly improves the writer's performance and reduces pressure on the `io.Writer`.
 
-`LAW` is very simple, it only has two APIs: `Write` and `Stop`. `Write` is used to write log data to the buffer, and `Stop` is used to stop the writer.
+With just two APIs, `Write` and `Stop`, `LAW` offers simplicity and ease of use. The `Write` API is used to write log data to the buffer, while the `Stop` API is used to stop the writer.
 
-`LAW` can be used any where which implements the `io.Writer` interface and asynchronous writing is required. such as `zap`, `logrus`, `klog`, `zerolog`, etc.
+`LAW` can be used with any implementation of the `io.Writer` interface that requires asynchronous writing, such as `zap`, `logrus`, `klog`, `zerolog`, and more.
 
 # Advantage
 
 -   Simple and easy to use
 -   No third-party dependencies
--   High performance
--   Low memory usage
--   GC optimization
--   Support action callback functions
+-   High performance with low memory usage
+-   Optimized for garbage collection
+-   Supports action callback functions
 
 # Installation
 
@@ -33,18 +32,45 @@ go get github.com/shengyanli1982/law
 
 # Quick Start
 
-`LAW` is very simple. Just create a writer and use the `Write` method to write log data to the buffer. When you want to stop the writer, just call the `Stop` method.
+`LAW` is designed to be simple and easy to use. To get started, create a writer and use the `Write` method to write log data to the buffer. When you're ready to stop the writer, simply call the `Stop` method.
 
-`LAW` provides a `Config` struct to configure the writer. You can use the `WithXXX` method to configure the writer. Detail see **Features** section.
+`LAW` also provides a `Config` struct that allows you to customize the writer's behavior. You can use the `WithXXX` methods to configure various features. For more details, refer to the **Features** section.
 
 ### Example
 
 ```go
-w := NewWriteAsyncer(os.Stdout, nil) // create a writer
+package main
 
-w.Write([]byte("hello world")) // write log data to the buffer
+import (
+	"os"
+	"time"
+	"strconv"
 
-w.Stop() // stop the writer
+	law "github.com/shengyanli1982/law"
+)
+
+func main() {
+	// 创建一个新的配置
+	// Create a new configuration
+	conf := NewConfig()
+
+	// 使用 os.Stdout 和配置创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout and the configuration
+	w := NewWriteAsyncer(os.Stdout, conf)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
+	defer w.Stop()
+
+	// 循环 10 次，每次都将一个数字写入 WriteAsyncer
+	// Loop 10 times, each time write a number to WriteAsyncer
+	for i := 0; i < 10; i++ {
+		_, _ = w.Write([]byte(strconv.Itoa(i))) // 将当前的数字写入 WriteAsyncer
+	}
+
+	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
+	// Wait for 1 second so we can see the output of WriteAsyncer
+	time.Sleep(time.Second)
+}
 ```
 
 # Features
@@ -53,12 +79,12 @@ w.Stop() // stop the writer
 
 ## 1. Callback
 
-`LAW` supports action callback function. Specify a callback functions when create a writer, and the callback function will be called when the writer do some actions.
+`LAW` supports action callback functions. You can specify a callback function when creating a writer, and the callback function will be called when the writer performs certain actions.
 
 > [!TIP]
-> Callback functions is not required that you can use `LAW` without callback functions. Set `nil` when create a writer, and the callback function will not be called.
+> Callback functions are optional. If you don't need callback functions, you can pass `nil` when creating a writer, and the callback function will not be called.
 >
-> You can use `WithCallback` method to set callback functions.
+> You can use the `WithCallback` method to set the callback function.
 
 ### Example
 
@@ -66,51 +92,69 @@ w.Stop() // stop the writer
 package main
 
 import (
-    "os"
-    "time"
-    "strconv"
+	"os"
+	"time"
+	"strconv"
 
-    law "github.com/shengyanli1982/law"
+	law "github.com/shengyanli1982/law"
 )
 
+// callback 是一个实现了 law.Callback 接口的结构体
+// callback is a struct that implements the law.Callback interface
 type callback struct{}
 
+// OnPushQueue 是当数据被推入队列时的回调函数
+// OnPushQueue is the callback function when data is pushed into the queue
 func (c *callback) OnPushQueue(b []byte) {
-    fmt.Printf("push queue msg: %s\n", string(b))
+	fmt.Printf("push queue msg: %s\n", string(b)) // 输出推入队列的消息
 }
 
+// OnPopQueue 是当数据从队列中弹出时的回调函数
+// OnPopQueue is the callback function when data is popped from the queue
 func (c *callback) OnPopQueue(b []byte, lantcy int64) {
-    fmt.Printf("pop queue msg: %s, lantcy: %d\n", string(b), lantcy)
+	fmt.Printf("pop queue msg: %s, lantcy: %d\n", string(b), lantcy) // 输出弹出队列的消息和延迟
 }
 
+// OnWrite 是当数据被写入时的回调函数
+// OnWrite is the callback function when data is written
 func (c *callback) OnWrite(b []byte) {
-    fmt.Printf("write msg: %s\n", string(b))
+	fmt.Printf("write msg: %s\n", string(b)) // 输出写入的消息
 }
 
 func main() {
-    conf := NewConfig().WithCallback(&callback{})
+	// 创建一个新的配置，并设置回调函数
+	// Create a new configuration and set the callback function
+	conf := NewConfig().WithCallback(&callback{})
 
-    w := NewWriteAsyncer(os.Stdout, conf)
-    defer w.Stop()
+	// 使用 os.Stdout 和配置创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout and the configuration
+	w := NewWriteAsyncer(os.Stdout, conf)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
+	defer w.Stop()
 
-    for i := 0; i < 10; i++ {
-        _, _ = w.Write([]byte(strconv.Itoa(i)))
-    }
+	// 循环 10 次，每次都将一个数字写入 WriteAsyncer
+	// Loop 10 times, each time write a number to WriteAsyncer
+	for i := 0; i < 10; i++ {
+		_, _ = w.Write([]byte(strconv.Itoa(i))) // 将当前的数字写入 WriteAsyncer
+	}
 
-    time.Sleep(time.Second)
+	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
+	// Wait for 1 second so we can see the output of WriteAsyncer
+	time.Sleep(time.Second)
 }
 ```
 
 ## 2. Capacity
 
-`LAW` use `double buffer` to write log data, so you can specify the capacity of the buffer when create a writer.
+`LAW` uses a `double buffer` to write log data, allowing you to specify the capacity of the buffer when creating a writer.
 
 > [!TIP]
 >
-> -   The default `deque` capacity is infinity, which means that the buffer can hold unlimited log data.
-> -   The default `bufferIo` capacity is `2k`, which means that the buffer can hold `2k` log data. If the capacity of the buffer is full, `LAW` will auto flush the buffer to the `io.Writer`. `2k` is a good choice, but you can also change it.
+> -   The default capacity of the `deque` is unlimited, meaning it can hold an unlimited amount of log data.
+> -   The default capacity of the `bufferIo` is `2k`, meaning it can hold up to `2k` log data. If the buffer is full, `LAW` will automatically flush the buffer to the `io.Writer`. `2k` is a recommended choice, but you can customize it.
 >
-> You can use `WithBufferSize` method to change the bufferIo size.
+> You can use the `WithBufferSize` method to change the size of the bufferIo.
 
 ### Example
 
@@ -118,34 +162,44 @@ func main() {
 package main
 
 import (
-    "os"
-    "time"
-    "strconv"
+	"os"
+	"time"
+	"strconv"
 
-    law "github.com/shengyanli1982/law"
+	law "github.com/shengyanli1982/law"
 )
 
 func main() {
-    conf := NewConfig().WithBufferSize(1024)
+	// 创建一个新的配置，并设置缓冲区大小为 1024
+	// Create a new configuration and set the buffer size to 1024
+	conf := NewConfig().WithBufferSize(1024)
 
-    w := NewWriteAsyncer(os.Stdout, conf)
-    defer w.Stop()
+	// 使用 os.Stdout 和配置创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout and the configuration
+	w := NewWriteAsyncer(os.Stdout, conf)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
+	defer w.Stop()
 
-    for i := 0; i < 10; i++ {
-        _, _ = w.Write([]byte(strconv.Itoa(i)))
-    }
+	// 循环 10 次，每次都将一个数字写入 WriteAsyncer
+	// Loop 10 times, each time write a number to WriteAsyncer
+	for i := 0; i < 10; i++ {
+		_, _ = w.Write([]byte(strconv.Itoa(i))) // 将当前的数字写入 WriteAsyncer
+	}
 
-    time.Sleep(time.Second)
+	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
+	// Wait for 1 second so we can see the output of WriteAsyncer
+	time.Sleep(time.Second)
 }
 ```
 
 # Examples
 
-Here are some examples of how to use `LAW`. but you can also refer to the [examples](examples) directory for more examples.
+Here are some examples of how to use LAW. For more examples, you can also refer to the `examples` directory.
 
 ## 1. Zap
 
-You can use `LAW` to write log data to `zap` asynchronously.
+`LAW` allows you to write log data to `zap` asynchronously.
 
 **Code**
 
@@ -164,26 +218,42 @@ import (
 )
 
 func main() {
+	// 使用 os.Stdout 创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout
 	aw := law.NewWriteAsyncer(os.Stdout, nil)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
 	defer aw.Stop()
 
+	// 创建一个 zapcore.EncoderConfig 实例，用于配置 zap 的编码器
+	// Create a zapcore.EncoderConfig instance to configure the encoder of zap
 	encoderCfg := zapcore.EncoderConfig{
-		MessageKey:     "msg",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.StringDurationEncoder,
+		MessageKey:     "msg",                         // 消息的键名
+		LevelKey:       "level",                       // 级别的键名
+		NameKey:        "logger",                      // 记录器名的键名
+		EncodeLevel:    zapcore.LowercaseLevelEncoder, // 级别的编码器
+		EncodeTime:     zapcore.ISO8601TimeEncoder,    // 时间的编码器
+		EncodeDuration: zapcore.StringDurationEncoder, // 持续时间的编码器
 	}
 
+	// 使用 WriteAsyncer 创建一个 zapcore.WriteSyncer 实例
+	// Create a zapcore.WriteSyncer instance using WriteAsyncer
 	zapAsyncWriter := zapcore.AddSync(aw)
+	// 使用编码器配置和 WriteSyncer 创建一个 zapcore.Core 实例
+	// Create a zapcore.Core instance using the encoder configuration and WriteSyncer
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapAsyncWriter, zapcore.DebugLevel)
+	// 使用 Core 创建一个 zap.Logger 实例
+	// Create a zap.Logger instance using Core
 	zapLogger := zap.New(zapCore)
 
+	// 循环 10 次，每次都使用 zapLogger 输出一个数字
+	// Loop 10 times, each time output a number using zapLogger
 	for i := 0; i < 10; i++ {
-		zapLogger.Info(strconv.Itoa(i))
+		zapLogger.Info(strconv.Itoa(i)) // 输出当前的数字
 	}
 
+	// 等待 3 秒，以便我们可以看到 zapLogger 的输出
+	// Wait for 3 seconds so we can see the output of zapLogger
 	time.Sleep(3 * time.Second)
 }
 ```
@@ -206,7 +276,7 @@ $ go run demo.go
 
 ## 2. Logrus
 
-You can use `LAW` to write log data to `logrus` asynchronously.
+`LAW` can be used to write log data to `logrus` asynchronously.
 
 **Code**
 
@@ -222,15 +292,25 @@ import (
 )
 
 func main() {
+	// 使用 os.Stdout 创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout
 	aw := law.NewWriteAsyncer(os.Stdout, nil)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
 	defer aw.Stop()
 
+	// 将 logrus 的输出设置为我们创建的 WriteAsyncer
+	// Set the output of logrus to the WriteAsyncer we created
 	logrus.SetOutput(aw)
 
+	// 循环 10 次，每次都使用 logrus 输出一个数字
+	// Loop 10 times, each time output a number using logrus
 	for i := 0; i < 10; i++ {
-		logrus.Info(i)
+		logrus.Info(i) // 输出当前的数字
 	}
 
+	// 等待 3 秒，以便我们可以看到 logrus 的输出
+	// Wait for 3 seconds so we can see the output of logrus
 	time.Sleep(3 * time.Second)
 }
 ```
@@ -253,7 +333,7 @@ time="2023-12-16T12:38:13+08:00" level=info msg=9
 
 ## 3. klog
 
-You can use `LAW` to write log data to `klog` asynchronously.
+`LAW` can be used to write log data to `klog` asynchronously.
 
 **Code**
 
@@ -269,15 +349,25 @@ import (
 )
 
 func main() {
+	// 使用 os.Stdout 创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout
 	aw := law.NewWriteAsyncer(os.Stdout, nil)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
 	defer aw.Stop()
 
+	// 将 klog 的输出设置为我们创建的 WriteAsyncer
+	// Set the output of klog to the WriteAsyncer we created
 	klog.SetOutput(aw)
 
+	// 循环 10 次，每次都使用 klog 输出一个数字
+	// Loop 10 times, each time output a number using klog
 	for i := 0; i < 10; i++ {
-		klog.Info(i)
+		klog.Info(i) // 输出当前的数字
 	}
 
+	// 等待 3 秒，以便我们可以看到 klog 的输出
+	// Wait for 3 seconds so we can see the output of klog
 	time.Sleep(3 * time.Second)
 }
 ```
@@ -300,7 +390,7 @@ I1216 12:36:07.638136   17388 demo.go:18] 9
 
 ## 4. Zerolog
 
-You can use `LAW` to write log data to `zerolog` asynchronously.
+`LAW` can be used to write log data to `zerolog` asynchronously.
 
 **Code**
 
@@ -316,18 +406,27 @@ import (
 )
 
 func main() {
+	// 使用 os.Stdout 创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout
 	aw := law.NewWriteAsyncer(os.Stdout, nil)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
 	defer aw.Stop()
 
+	// 使用 WriteAsyncer 创建一个新的 zerolog.Logger 实例，并添加时间戳
+	// Create a new zerolog.Logger instance using WriteAsyncer and add a timestamp
 	log := zerolog.New(aw).With().Timestamp().Logger()
 
+	// 循环 10 次，每次都使用 log 输出一个数字和一条消息
+	// Loop 10 times, each time output a number and a message using log
 	for i := 0; i < 10; i++ {
-		log.Info().Int("i", i).Msg("hello")
+		log.Info().Int("i", i).Msg("hello") // 输出当前的数字和一条消息
 	}
 
+	// 等待 3 秒，以便我们可以看到 log 的输出
+	// Wait for 3 seconds so we can see the output of log
 	time.Sleep(3 * time.Second)
 }
-
 ```
 
 **Results**
@@ -349,7 +448,7 @@ $ go run demo.go
 # Benchmark
 
 > [!IMPORTANT]
-> Benchmark test result is only for reference. Different hardware environment will have different results.
+> The benchmark test results are provided for reference only. Please note that different hardware environments may yield different results.
 
 ### Environment
 
@@ -360,9 +459,7 @@ $ go run demo.go
 
 ## 1. Base
 
-Compare the performance of `LAW` with `BlackHoleWriter` and `zapcore.AddSync(BlackHoleWriter)`.
-
-Since version `v0.1.3`, the `LAW` codes has been optimized and the performance has been improved.
+The performance of `LAW` has been optimized and improved compared to `BlackHoleWriter` and `zapcore.AddSync(BlackHoleWriter)` since version `v0.1.3`.
 
 **Before**
 
@@ -400,11 +497,11 @@ BenchmarkZapAsyncWriter-12             	 2179002	       694.4 ns/op	      62 B/o
 BenchmarkZapAsyncWriterParallel-12     	 5183258	       387.7 ns/op	      73 B/op	       2 allocs/op
 ```
 
-`LAW` employs a `double buffer` strategy for logging, potentially leading to slightly lower performance compared to `zapcore.AddSync(BlackHoleWriter)`. This is because `zap`, integrating with `LAW`, utilizes zap's writer buffer not directly. `zap` give the data to `LAW`, through a `deque` before flushing to `io.Writer` (`BlackHoleWriter`), resulting in its performance being the sum of `BenchmarkZapSyncWriter` and `BenchmarkLogAsyncWriter`, equivalent to `BenchmarkZapAsyncWriter`.
+`LAW` employs a `double buffer` strategy for logging, which may slightly impact performance compared to `zapcore.AddSync(BlackHoleWriter)`. This is because `zap`, when integrated with `LAW`, utilizes zap's writer buffer indirectly. `zap` passes the data to `LAW` through a `deque` before flushing it to the `io.Writer` (`BlackHoleWriter`). As a result, the performance of `LAW` is the sum of `BenchmarkZapSyncWriter` and `BenchmarkLogAsyncWriter`, equivalent to `BenchmarkZapAsyncWriter`.
 
 ## 2. Http Server
 
-Integrate law into the http server to simulate real business scenarios and compare the performance of law with other loggers.
+Integrate `law` into the HTTP server to simulate real-world business scenarios and compare its performance with other loggers.
 
 ### 2.1. SyncWriter
 
@@ -422,22 +519,34 @@ import (
 )
 
 func main() {
+	// 创建一个zapcore.EncoderConfig，用于配置日志编码器
+	// Create a zapcore.EncoderConfig to configure the log encoder
 	encoderCfg := zapcore.EncoderConfig{
-		MessageKey:     "msg",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.StringDurationEncoder,
+		MessageKey:     "msg",                         // 消息的键名，Key name for the message
+		LevelKey:       "level",                       // 日志级别的键名，Key name for the log level
+		NameKey:        "logger",                      // 记录器名称的键名，Key name for the logger name
+		EncodeLevel:    zapcore.LowercaseLevelEncoder, // 日志级别的编码器，Encoder for the log level
+		EncodeTime:     zapcore.ISO8601TimeEncoder,    // 时间的编码器，Encoder for the time
+		EncodeDuration: zapcore.StringDurationEncoder, // 持续时间的编码器，Encoder for the duration
 	}
 
+	// 创建一个zapcore.WriteSyncer，将日志写入标准输出
+	// Create a zapcore.WriteSyncer that writes logs to the standard output
 	zapSyncWriter := zapcore.AddSync(os.Stdout)
+	// 创建一个zapcore.Core，使用JSON编码器和标准输出
+	// Create a zapcore.Core using the JSON encoder and the standard output
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapSyncWriter, zapcore.DebugLevel)
+	// 创建一个zap.Logger，使用上面创建的zapcore.Core
+	// Create a zap.Logger using the zapcore.Core created above
 	zapLogger := zap.New(zapCore)
 
+	// 注册一个HTTP处理函数，当访问"/"时，记录一条信息日志
+	// Register an HTTP handler function, when accessing "/", log an info message
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		zapLogger.Info("hello")
 	})
+	// 启动HTTP服务器，监听8080端口
+	// Start the HTTP server, listen on port 8080
 	_ = http.ListenAndServe(":8080", nil)
 }
 ```
@@ -480,25 +589,41 @@ import (
 )
 
 func main() {
+	// 创建一个新的异步写入器，输出到标准输出
+	// Create a new asynchronous writer that outputs to standard output
 	aw := x.NewWriteAsyncer(os.Stdout, nil)
+	// 确保在程序结束时停止异步写入器
+	// Ensure the asynchronous writer is stopped when the program ends
 	defer aw.Stop()
 
+	// 创建一个zapcore.EncoderConfig，用于配置日志编码器
+	// Create a zapcore.EncoderConfig to configure the log encoder
 	encoderCfg := zapcore.EncoderConfig{
-		MessageKey:     "msg",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.StringDurationEncoder,
+		MessageKey:     "msg",                         // 消息的键名，Key name for the message
+		LevelKey:       "level",                       // 日志级别的键名，Key name for the log level
+		NameKey:        "logger",                      // 记录器名称的键名，Key name for the logger name
+		EncodeLevel:    zapcore.LowercaseLevelEncoder, // 日志级别的编码器，Encoder for the log level
+		EncodeTime:     zapcore.ISO8601TimeEncoder,    // 时间的编码器，Encoder for the time
+		EncodeDuration: zapcore.StringDurationEncoder, // 持续时间的编码器，Encoder for the duration
 	}
 
+	// 创建一个zapcore.WriteSyncer，将日志写入异步写入器
+	// Create a zapcore.WriteSyncer that writes logs to the asynchronous writer
 	zapSyncWriter := zapcore.AddSync(aw)
+	// 创建一个zapcore.Core，使用JSON编码器和异步写入器
+	// Create a zapcore.Core using the JSON encoder and the asynchronous writer
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapSyncWriter, zapcore.DebugLevel)
+	// 创建一个zap.Logger，使用上面创建的zapcore.Core
+	// Create a zap.Logger using the zapcore.Core created above
 	zapLogger := zap.New(zapCore)
 
+	// 注册一个HTTP处理函数，当访问"/"时，记录一条信息日志
+	// Register an HTTP handler function, when accessing "/", log an info message
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		zapLogger.Info("hello")
 	})
+	// 启动HTTP服务器，监听8080端口
+	// Start the HTTP server, listen on port 8080
 	_ = http.ListenAndServe(":8080", nil)
 }
 ```
