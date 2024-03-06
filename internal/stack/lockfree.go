@@ -8,15 +8,15 @@ import (
 // Element 是栈中的元素
 // Element is an element in the stack
 type Element struct {
-	next  unsafe.Pointer // 指向下一个元素的指针
-	value interface{}    // 元素的值
+	next  unsafe.Pointer // 指向下一个元素的指针，Points to the next element
+	value interface{}    // 元素的值，The value of the element
 }
 
 // LockFreeStack 是一个无锁栈
 // LockFreeStack is a lock-free stack
 type LockFreeStack struct {
-	top    unsafe.Pointer // 栈顶指针
-	length uint64         // 栈的长度
+	top    unsafe.Pointer // 栈顶指针，Pointer to the top of the stack
+	length uint64         // 栈的长度，The length of the stack
 }
 
 // NewLockFreeStack 创建一个新的无锁栈
@@ -106,12 +106,19 @@ func (s *LockFreeStack) Push(value interface{}) {
 // Len 返回栈的长度
 // Len returns the length of the stack
 func (s *LockFreeStack) Len() uint64 {
+	// 使用原子操作获取栈的长度
+	// Use atomic operation to get the length of the stack
 	return atomic.LoadUint64(&s.length)
 }
 
 // Reset 重置栈
-// Reset resets
+// Reset resets the stack
 func (s *LockFreeStack) Reset() {
-	s.top = unsafe.Pointer(&Element{}) // 将栈顶指针指向空元素
-	atomic.StoreUint64(&s.length, 0)   // 将栈长度置为0
+	// 将栈顶指针指向空元素
+	// Set the top pointer to an empty element
+	s.top = unsafe.Pointer(&Element{})
+
+	// 使用原子操作将栈长度置为0
+	// Use atomic operation to set the length of the stack to 0
+	atomic.StoreUint64(&s.length, 0)
 }
