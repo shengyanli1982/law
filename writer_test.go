@@ -1,6 +1,7 @@
 package law
 
 import (
+	"bytes"
 	"os"
 	"testing"
 	"time"
@@ -26,7 +27,9 @@ func (c *callback) OnWrite(b []byte) {
 }
 
 func TestWriteAsyncer_Standard(t *testing.T) {
-	w := NewWriteAsyncer(os.Stdout, nil)
+	buff := bytes.NewBuffer(make([]byte, 0, 1024))
+
+	w := NewWriteAsyncer(buff, nil)
 	defer w.Stop()
 
 	_, err := w.Write([]byte("hello"))
@@ -36,11 +39,16 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	_, err = w.Write([]byte("!!!"))
 	assert.Nil(t, err)
 
-	time.Sleep(time.Second)
+	w.cleaningQueueToWriter()
+	w.bufferedWriter.Flush()
+
+	assert.Equal(t, "helloworld!!!", buff.String())
 }
 
 func TestWriteAsyncer_EarlyShutdown(t *testing.T) {
-	w := NewWriteAsyncer(os.Stdout, nil)
+	buff := bytes.NewBuffer(make([]byte, 0, 1024))
+
+	w := NewWriteAsyncer(buff, nil)
 
 	_, err := w.Write([]byte("hello"))
 	assert.Nil(t, err)
@@ -50,7 +58,8 @@ func TestWriteAsyncer_EarlyShutdown(t *testing.T) {
 	assert.Nil(t, err)
 
 	w.Stop()
-	time.Sleep(time.Second)
+
+	assert.Equal(t, "helloworld!!!", buff.String())
 }
 
 func TestWriteAsyncer_Callback(t *testing.T) {
