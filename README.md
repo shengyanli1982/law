@@ -2,13 +2,13 @@
 	<h1>LAW</h1>
 	<p>A lightweight elevate I/O with Asynchronous io.Writer<p>
 	<p>Boost performance and efficiency effortlessly for logging, streaming, and more.</p>
-	<img src="assets/logo.png" alt="logo" width="300px">
+	<img src="assets/logo.png" alt="logo" width="350px">
     
 </div>
 
 # Introduction
 
-**Log Asynchronous Writer** is a lightweight log asynchronous writer designed for high concurrency scenarios, such as HTTP servers and gRPC servers.
+**Log Asynchronous Writer** is a lightweight log asynchronous writer designed for high-concurrency scenarios, such as HTTP servers and gRPC servers.
 
 `LAW` utilizes a `double buffer` design, allowing it to write data to the `deque` asynchronously and flush the buffer to the `io.Writer` when it is full. This design significantly improves the writer's performance and reduces pressure on the `io.Writer`.
 
@@ -16,13 +16,13 @@ With just two APIs, `Write` and `Stop`, `LAW` offers simplicity and ease of use.
 
 `LAW` can be used with any implementation of the `io.Writer` interface that requires asynchronous writing, such as `zap`, `logrus`, `klog`, `zerolog`, and more.
 
-# Advantage
+# Advantages
 
--   Simple and easy to use
--   No third-party dependencies
--   High performance with low memory usage
--   Optimized for garbage collection
--   Supports action callback functions
+-   Simple and user-friendly
+-   No external dependencies required
+-   High performance with minimal memory usage
+-   Optimized for efficient garbage collection
+-   Supports customizable action callback functions
 
 # Installation
 
@@ -32,9 +32,9 @@ go get github.com/shengyanli1982/law
 
 # Quick Start
 
-`LAW` is designed to be simple and easy to use. To get started, create a writer and use the `Write` method to write log data to the buffer. When you're ready to stop the writer, simply call the `Stop` method.
+`LAW` is designed to be straightforward and user-friendly. To begin, create a writer and use the `Write` method to write log data to the buffer. When you're ready to stop the writer, simply call the `Stop` method.
 
-`LAW` also provides a `Config` struct that allows you to customize the writer's behavior. You can use the `WithXXX` methods to configure various features. For more details, refer to the **Features** section.
+Additionally, `LAW` offers a `Config` struct that enables customization of the writer's behavior. You can utilize the `WithXXX` methods to configure various features. For more information, refer to the **Features** section.
 
 ### Example
 
@@ -75,14 +75,14 @@ func main() {
 
 # Features
 
-`LAW` also has interesting properties. It is designed to be easily extensible which mean you can easily write your own asynchronous writer.
+`LAW` also has some interesting features. It is designed to be easily extensible, allowing you to write your own asynchronous writer effortlessly.
 
 ## 1. Callback
 
-`LAW` supports action callback functions. You can specify a callback function when creating a writer, and the callback function will be called when the writer performs certain actions.
+`LAW` supports action callback functions. You can specify a callback function when creating a writer, and this function will be called when the writer performs certain actions.
 
 > [!TIP]
-> Callback functions are optional. If you don't need callback functions, you can pass `nil` when creating a writer, and the callback function will not be called.
+> Callback functions are optional. If you don't need them, you can pass `nil` when creating a writer, and the callback function will not be called.
 >
 > You can use the `WithCallback` method to set the callback function.
 
@@ -147,14 +147,14 @@ func main() {
 
 ## 2. Capacity
 
-`LAW` uses a `double buffer` to write log data, allowing you to specify the capacity of the buffer when creating a writer.
+`LAW` utilizes a `double buffer` to write log data, allowing you to specify the buffer's capacity when creating a writer.
 
 > [!TIP]
 >
 > -   The default capacity of the `deque` is unlimited, meaning it can hold an unlimited amount of log data.
-> -   The default capacity of the `bufferIo` is `2k`, meaning it can hold up to `2k` log data. If the buffer is full, `LAW` will automatically flush the buffer to the `io.Writer`. `2k` is a recommended choice, but you can customize it.
+> -   The default capacity of the `bufferIo` is `2k`, meaning it can hold up to `2k` log data. If the buffer becomes full, `LAW` will automatically flush the buffer to the `io.Writer`. `2k` is a recommended choice, but you can customize it.
 >
-> You can use the `WithBufferSize` method to change the size of the bufferIo.
+> You can use the `WithBufferSize` method to adjust the size of the bufferIo.
 
 ### Example
 
@@ -199,7 +199,7 @@ Here are some examples of how to use LAW. For more examples, you can also refer 
 
 ## 1. Zap
 
-`LAW` allows you to write log data to `zap` asynchronously.
+`LAW` can be used to write log data to `zap` asynchronously.
 
 **Code**
 
