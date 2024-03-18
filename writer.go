@@ -258,12 +258,13 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 	// 如果缓冲区可用空间不足，并且缓冲区中有数据，则先将缓冲区中的数据写入目标
 	// If the available space in the buffer is not enough and there is data in the buffer, write the data in the buffer to the target first
 	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
+		// 如果 Flush 失败，则直接将数据写入目标
+		// If Flush fails, write the data directly to the target
 		if err := wa.bufferedWriter.Flush(); err != nil {
-			// 如果 Flush 失败，则直接将数据写入目标
-			// If Flush fails, write the data directly to the target
 			return wa.writer.Write(p)
 		}
 	}
+
 	// 将数据写入缓冲区
 	// Write data to the buffer
 	return wa.bufferedWriter.Write(p)
@@ -286,35 +287,28 @@ func (wa *WriteAsyncer) poller() {
 	// 循环检查队列中的数据
 	// Loop to check the data in the queue
 	for {
-		select {
-		case <-wa.ctx.Done():
+		// 从队列中弹出一个元素
+		// Pop an element from the queue
+		elem := wa.queue.Pop()
+
+		// 检查元素是否为空
+		// Check if the element is null
+		if elem != nil {
+			// 如果元素不为空就执行 executeFunc
+			// If the element is not empty, execute executeFunc
+			wa.executeFunc(elem.(*Element))
+		} else {
+			// 使用 select 语句等待多个通道操作
+			// Use select statement to wait for multiple channel operations
+			select {
 			// 如果收到了 ctx 的 Done 信号，就退出
 			// If the Done signal of ctx is received, exit
-			return
-
-		default:
-			// 如果 WriteAsyncer 已经关闭，就退出
-			// If WriteAsyncer has been closed, exit
-			if !wa.state.running.Load() {
+			case <-wa.ctx.Done():
 				return
-			}
 
-			// 从队列中取出元素，如果元素不为空就执行 executeFunc。
-			// 否则 sleep 一段时间，判断 bufferedWriter 是否有数据，如果有就 flush。
-			// 随后判断是否需要 prune elementpool。
-			// Pop an element from the queue, if the element is not empty, execute executeFunc.
-			// Otherwise, sleep for a period of time, check if bufferedWriter has data, if so, flush.
-			// Then check if elementpool needs to be pruned.
-			elem := wa.queue.Pop()
-			if elem != nil {
-				// 如果元素不为空就执行 executeFunc
-				// If the element is not empty, execute executeFunc
-				wa.executeFunc(elem.(*Element))
-			} else {
-				// 如果没有元素，就等待心跳信号
-				// If there is no element, wait for the heartbeat signal
-				<-heartbeat.C
-
+			// 如果没有元素，就等待心跳信号
+			// If there is no element, wait for the heartbeat signal
+			case <-heartbeat.C:
 				// 获取当前时间戳，计算 diff
 				// Get the current timestamp and calculate diff
 				now := wa.timer.Load()
@@ -322,7 +316,7 @@ func (wa *WriteAsyncer) poller() {
 
 				// 如果 bufferedWriter 中有数据，并且 diff 大于默认的空闲超时时间，就 flush bufferedWriter
 				// If there is data in bufferedWriter and diff is greater than the default idle timeout, flush bufferedWriter
-				if wa.bufferedWriter.Buffered() > 0 && diff > defaultIdleTimeout.Milliseconds() {
+				if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
 					if err := wa.bufferedWriter.Flush(); err != nil {
 						// 如果 flush bufferedWriter 出错，就记录错误日志
 						// If flushing bufferedWriter fails, log the error
@@ -341,6 +335,7 @@ func (wa *WriteAsyncer) poller() {
 				}
 			}
 		}
+
 	}
 }
 
@@ -362,9 +357,14 @@ func (wa *WriteAsyncer) updateTimer() {
 	// Use an infinite loop to continuously update the timestamp
 	for {
 		select {
-		case <-wa.ctx.Done(): // 如果收到上下文的 Done 信号，就退出循环
+		// 如果收到上下文的 Done 信号，就退出循环
+		// If the Done signal of the context is received, exit the loop
+		case <-wa.ctx.Done():
 			return
-		case <-ticker.C: // 如果定时器触发，就更新时间戳
+
+		// 如果定时器触发，就更新时间戳
+		// If the timer triggers, update the timestamp
+		case <-ticker.C:
 			// 使用当前的 Unix 毫秒时间戳更新 timer
 			// Update timer with the current Unix millisecond timestamp
 			wa.timer.Store(time.Now().UnixMilli())
@@ -375,11 +375,16 @@ func (wa *WriteAsyncer) updateTimer() {
 // executeFunc 是 poller 的执行函数
 // executeFunc is the execution function of the poller
 func (wa *WriteAsyncer) executeFunc(elem *Element) {
-	now := wa.timer.Load()        // 获取当前时间
-	wa.state.executeAt.Store(now) // 存储当前时间
+	// 从 timer 中加载当前的时间戳
+	// Load the current timestamp from timer
+	now := wa.timer.Load()
 
-	// 调用回调方法
-	// Call the callback method
+	// 将当前的时间戳存储到 state 的 executeAt 中
+	// Store the current timestamp in state's executeAt
+	wa.state.executeAt.Store(now)
+
+	// 调用回调方法，传入 buffer 和当前时间与更新时间的差值
+	// Call the callback method, passing in the buffer and the difference between the current time and the update time
 	wa.config.callback.OnPopQueue(elem.buffer, now-elem.updateAt)
 
 	// 将 buffer 中的内容写入到底层 io.Writer，如果有错误就是调用 logger 的 Errorf 方法
