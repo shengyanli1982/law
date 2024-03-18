@@ -98,6 +98,7 @@ func (s *LockFreeStack) Push(value interface{}) {
 			// 栈长度加1
 			// Increment the length of the stack
 			atomic.AddUint64(&s.length, 1)
+
 			return
 		}
 	}

@@ -74,9 +74,11 @@ func (q *LockFreeQueue) Push(value interface{}) {
 					// 如果添加成功，更新队列的尾部元素为新元素
 					// If the addition is successful, update the tail element of the queue to the new element
 					CasItem(&q.tail, tail, newItem)
+
 					// 使用原子操作增加队列长度
 					// Increase the length of the queue using atomic operation
 					atomic.AddUint64(&q.length, 1)
+					
 					return
 				}
 			} else {

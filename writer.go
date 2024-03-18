@@ -258,12 +258,13 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 	// 如果缓冲区可用空间不足，并且缓冲区中有数据，则先将缓冲区中的数据写入目标
 	// If the available space in the buffer is not enough and there is data in the buffer, write the data in the buffer to the target first
 	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
+		// 如果 Flush 失败，则直接将数据写入目标
+		// If Flush fails, write the data directly to the target
 		if err := wa.bufferedWriter.Flush(); err != nil {
-			// 如果 Flush 失败，则直接将数据写入目标
-			// If Flush fails, write the data directly to the target
 			return wa.writer.Write(p)
 		}
 	}
+
 	// 将数据写入缓冲区
 	// Write data to the buffer
 	return wa.bufferedWriter.Write(p)
@@ -356,9 +357,14 @@ func (wa *WriteAsyncer) updateTimer() {
 	// Use an infinite loop to continuously update the timestamp
 	for {
 		select {
-		case <-wa.ctx.Done(): // 如果收到上下文的 Done 信号，就退出循环
+		// 如果收到上下文的 Done 信号，就退出循环
+		// If the Done signal of the context is received, exit the loop
+		case <-wa.ctx.Done():
 			return
-		case <-ticker.C: // 如果定时器触发，就更新时间戳
+
+		// 如果定时器触发，就更新时间戳
+		// If the timer triggers, update the timestamp
+		case <-ticker.C:
 			// 使用当前的 Unix 毫秒时间戳更新 timer
 			// Update timer with the current Unix millisecond timestamp
 			wa.timer.Store(time.Now().UnixMilli())
@@ -369,11 +375,16 @@ func (wa *WriteAsyncer) updateTimer() {
 // executeFunc 是 poller 的执行函数
 // executeFunc is the execution function of the poller
 func (wa *WriteAsyncer) executeFunc(elem *Element) {
-	now := wa.timer.Load()        // 获取当前时间
-	wa.state.executeAt.Store(now) // 存储当前时间
+	// 从 timer 中加载当前的时间戳
+	// Load the current timestamp from timer
+	now := wa.timer.Load()
 
-	// 调用回调方法
-	// Call the callback method
+	// 将当前的时间戳存储到 state 的 executeAt 中
+	// Store the current timestamp in state's executeAt
+	wa.state.executeAt.Store(now)
+
+	// 调用回调方法，传入 buffer 和当前时间与更新时间的差值
+	// Call the callback method, passing in the buffer and the difference between the current time and the update time
 	wa.config.callback.OnPopQueue(elem.buffer, now-elem.updateAt)
 
 	// 将 buffer 中的内容写入到底层 io.Writer，如果有错误就是调用 logger 的 Errorf 方法
