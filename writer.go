@@ -286,35 +286,28 @@ func (wa *WriteAsyncer) poller() {
 	// 循环检查队列中的数据
 	// Loop to check the data in the queue
 	for {
-		select {
-		case <-wa.ctx.Done():
+		// 从队列中弹出一个元素
+		// Pop an element from the queue
+		elem := wa.queue.Pop()
+
+		// 检查元素是否为空
+		// Check if the element is null
+		if elem != nil {
+			// 如果元素不为空就执行 executeFunc
+			// If the element is not empty, execute executeFunc
+			wa.executeFunc(elem.(*Element))
+		} else {
+			// 使用 select 语句等待多个通道操作
+			// Use select statement to wait for multiple channel operations
+			select {
 			// 如果收到了 ctx 的 Done 信号，就退出
 			// If the Done signal of ctx is received, exit
-			return
-
-		default:
-			// 如果 WriteAsyncer 已经关闭，就退出
-			// If WriteAsyncer has been closed, exit
-			if !wa.state.running.Load() {
+			case <-wa.ctx.Done():
 				return
-			}
 
-			// 从队列中取出元素，如果元素不为空就执行 executeFunc。
-			// 否则 sleep 一段时间，判断 bufferedWriter 是否有数据，如果有就 flush。
-			// 随后判断是否需要 prune elementpool。
-			// Pop an element from the queue, if the element is not empty, execute executeFunc.
-			// Otherwise, sleep for a period of time, check if bufferedWriter has data, if so, flush.
-			// Then check if elementpool needs to be pruned.
-			elem := wa.queue.Pop()
-			if elem != nil {
-				// 如果元素不为空就执行 executeFunc
-				// If the element is not empty, execute executeFunc
-				wa.executeFunc(elem.(*Element))
-			} else {
-				// 如果没有元素，就等待心跳信号
-				// If there is no element, wait for the heartbeat signal
-				<-heartbeat.C
-
+			// 如果没有元素，就等待心跳信号
+			// If there is no element, wait for the heartbeat signal
+			case <-heartbeat.C:
 				// 获取当前时间戳，计算 diff
 				// Get the current timestamp and calculate diff
 				now := wa.timer.Load()
@@ -322,7 +315,7 @@ func (wa *WriteAsyncer) poller() {
 
 				// 如果 bufferedWriter 中有数据，并且 diff 大于默认的空闲超时时间，就 flush bufferedWriter
 				// If there is data in bufferedWriter and diff is greater than the default idle timeout, flush bufferedWriter
-				if wa.bufferedWriter.Buffered() > 0 && diff > defaultIdleTimeout.Milliseconds() {
+				if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
 					if err := wa.bufferedWriter.Flush(); err != nil {
 						// 如果 flush bufferedWriter 出错，就记录错误日志
 						// If flushing bufferedWriter fails, log the error
@@ -341,6 +334,7 @@ func (wa *WriteAsyncer) poller() {
 				}
 			}
 		}
+
 	}
 }
 
