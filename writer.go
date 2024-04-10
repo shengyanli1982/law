@@ -2,17 +2,25 @@ package law
 
 import (
 	"bufio"
+
 	"context"
+
 	"errors"
+
 	"io"
+
 	"os"
+
 	"sync"
+
 	"sync/atomic"
+
 	"time"
 
+	lf "github.com/shengyanli1982/law/internal/lockfree"
+
 	"github.com/shengyanli1982/law/internal/pool"
-	lfq "github.com/shengyanli1982/law/internal/queue"
-	lfs "github.com/shengyanli1982/law/internal/stack"
+
 	"github.com/shengyanli1982/law/internal/util"
 )
 
@@ -82,7 +90,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		config: conf,
 
-		queue: lfq.NewLockFreeQueue(),
+		queue: lf.NewLockFreeQueue(),
 
 		writer: writer,
 
@@ -90,7 +98,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		state: Status{},
 
-		elementpool: pool.NewPool(func() any { return &Element{} }, lfs.NewLockFreeStack()),
+		elementpool: pool.NewPool(func() any { return &Element{} }, lf.NewLockFreeStack()),
 
 		timer: atomic.Int64{},
 
@@ -173,6 +181,37 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 
 }
 
+func (wa *WriteAsyncer) cleanupCache() {
+	heartbeat := time.NewTicker(defaultHeartbeatInterval)
+
+	defer func() {
+
+		heartbeat.Stop()
+
+		wa.wg.Done()
+
+	}()
+
+	for {
+		select {
+
+		case <-wa.ctx.Done():
+
+			return
+
+		case <-heartbeat.C:
+
+			if wa.timer.Load()-wa.state.executeAt.Load() > defaultIdleTimeout.Milliseconds()*6 {
+
+				wa.elementpool.Prune()
+
+			}
+		}
+
+	}
+
+}
+
 func (wa *WriteAsyncer) poller() {
 
 	heartbeat := time.NewTicker(defaultHeartbeatInterval)
@@ -216,12 +255,6 @@ func (wa *WriteAsyncer) poller() {
 					}
 
 					wa.state.executeAt.Store(now)
-
-				}
-
-				if diff > defaultIdleTimeout.Milliseconds()*6 {
-
-					wa.elementpool.Prune()
 
 				}
 

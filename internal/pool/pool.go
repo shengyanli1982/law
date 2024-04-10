@@ -7,7 +7,7 @@ type StackInterface interface {
 
 	Pop() interface{}
 
-	Len() uint64
+	Length() uint64
 }
 
 type Pool struct {
@@ -51,7 +51,7 @@ func (p *Pool) Put(v interface{}) {
 
 func (p *Pool) Prune() {
 
-	count := uint64(float64(p.stack.Len()) * 0.33)
+	count := uint64(float64(p.stack.Length()) * 0.33)
 
 	for i := uint64(0); i < count; i++ {
 
