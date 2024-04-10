@@ -11,12 +11,12 @@ func TestLockFreeQueue(t *testing.T) {
 	q := NewLockFreeQueue()
 
 	// Test enqueueing elements into the queue
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100000; i++ {
 		q.Push(i)
 	}
 
 	// Verify the elements in the queue
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100000; i++ {
 		v := q.Pop()
 		assert.Equal(t, i, v, "Incorrect value in the queue. Expected %d, got %d", i, v)
 	}
@@ -103,6 +103,7 @@ func BenchmarkLockFreeQueue(b *testing.B) {
 func BenchmarkLockFreeQueueParallel(b *testing.B) {
 	q := NewLockFreeQueue()
 	b.ResetTimer()
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			q.Push(1)
