@@ -19,8 +19,6 @@ import (
 
 	lf "github.com/shengyanli1982/law/internal/lockfree"
 
-	"github.com/shengyanli1982/law/internal/pool"
-
 	"github.com/shengyanli1982/law/internal/util"
 )
 
@@ -31,20 +29,6 @@ const (
 )
 
 var ErrorWriteAsyncerIsClosed = errors.New("write asyncer is closed")
-
-type Element struct {
-	buffer []byte
-
-	updateAt int64
-}
-
-func (e *Element) Reset() {
-
-	e.buffer = nil
-
-	e.updateAt = 0
-
-}
 
 type Status struct {
 	running atomic.Bool
@@ -73,7 +57,7 @@ type WriteAsyncer struct {
 
 	state Status
 
-	elementpool *pool.Pool
+	elementpool *ElementPool
 }
 
 func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
@@ -98,7 +82,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		state: Status{},
 
-		elementpool: pool.NewPool(func() any { return &Element{} }, lf.NewLockFreeStack()),
+		elementpool: NewElementPool(),
 
 		timer: atomic.Int64{},
 
@@ -149,7 +133,7 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 
 	}
 
-	element := wa.elementpool.Get().(*Element)
+	element := wa.elementpool.Get()
 
 	element.buffer = p
 
@@ -178,37 +162,6 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 	}
 
 	return wa.bufferedWriter.Write(p)
-
-}
-
-func (wa *WriteAsyncer) cleanupCache() {
-	heartbeat := time.NewTicker(defaultHeartbeatInterval)
-
-	defer func() {
-
-		heartbeat.Stop()
-
-		wa.wg.Done()
-
-	}()
-
-	for {
-		select {
-
-		case <-wa.ctx.Done():
-
-			return
-
-		case <-heartbeat.C:
-
-			if wa.timer.Load()-wa.state.executeAt.Load() > defaultIdleTimeout.Milliseconds()*6 {
-
-				wa.elementpool.Prune()
-
-			}
-		}
-
-	}
 
 }
 

@@ -20,6 +20,19 @@ func TestLockFreeQueue(t *testing.T) {
 		v := q.Pop()
 		assert.Equal(t, i, v, "Incorrect value in the queue. Expected %d, got %d", i, v)
 	}
+
+	// Verify the queue length
+	assert.Equal(t, uint64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
+}
+
+func TestLockFreeQueueEmpty(t *testing.T) {
+	q := NewLockFreeQueue()
+
+	// Test popping elements from an empty queue
+	for i := 0; i < 100; i++ {
+		v := q.Pop()
+		assert.Nil(t, v, "Expected nil value from an empty queue")
+	}
 }
 
 func TestLockFreeQueueParallel(t *testing.T) {
@@ -72,8 +85,8 @@ func TestLockFreeQueueParallelAtSametime(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			v := q.Pop()
-			if v != i {
-				assert.Contains(t, nums, v, "Incorrect value in the queue. Expected %d, got %d", i, v)
+			if v.(int) != i {
+				assert.Contains(t, nums, v.(int), "Incorrect value in the queue. Expected %d, got %d", i, v)
 			}
 		}(i)
 	}

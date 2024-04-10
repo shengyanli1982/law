@@ -1,34 +1,22 @@
 package lockfree
 
-
-
 import (
-
 	"sync/atomic"
 
 	"unsafe"
-
 )
 
-
-
 type Node struct {
-
 	value interface{}
 
-	next  unsafe.Pointer
-
+	next unsafe.Pointer
 }
-
-
 
 func NewNode() *Node {
 
 	return &Node{}
 
 }
-
-
 
 func (n *Node) Reset() {
 
@@ -38,19 +26,14 @@ func (n *Node) Reset() {
 
 }
 
-
-
 func loadNode(p *unsafe.Pointer) *Node {
 
 	return (*Node)(atomic.LoadPointer(p))
 
 }
 
-
-
 func compareAndSwapNode(p *unsafe.Pointer, old, new *Node) bool {
 
 	return atomic.CompareAndSwapPointer(p, unsafe.Pointer(old), unsafe.Pointer(new))
 
 }
-

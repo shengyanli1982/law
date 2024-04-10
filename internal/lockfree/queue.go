@@ -89,15 +89,15 @@ func (q *LockFreeQueue) Pop() interface{} {
 
 			} else {
 
-				v := first.value
-
 				if compareAndSwapNode(&q.head, head, first) {
 
 					atomic.AddUint64(&q.length, ^uint64(0))
 
-					defer head.Reset()
+					result := first.value
 
-					return v
+					head.Reset()
+
+					return result
 
 				}
 
