@@ -39,7 +39,7 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	_, err = w.Write([]byte("!!!"))
 	assert.Nil(t, err)
 
-	w.cleaningQueueToWriter()
+	w.cleanQueueToWriter()
 	w.bufferedWriter.Flush()
 
 	assert.Equal(t, "helloworld!!!", buff.String())
