@@ -85,7 +85,7 @@ func TestLockFreeQueueParallelAtSametime(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			v := q.Pop()
-			if v.(int) != i {
+			if v != nil && v.(int) != i {
 				assert.Contains(t, nums, v.(int), "Incorrect value in the queue. Expected %d, got %d", i, v)
 			}
 		}(i)

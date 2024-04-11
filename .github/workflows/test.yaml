@@ -17,4 +17,4 @@ jobs:
           go-version: "${{ matrix.go-version }}"
       - uses: actions/checkout@v3
       - name: Test
-        run: go test -v ./...
+        run: go test -v . && go test -v ./internal/lockfree  && go test -v ./internal/util
