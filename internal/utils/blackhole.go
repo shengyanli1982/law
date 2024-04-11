@@ -1,4 +1,4 @@
-package util
+package utils
 
 // BlackHoleWriter 是一个结构体，实现了 io.Writer 接口，但实际上并不执行任何写入操作。
 // BlackHoleWriter is a struct that implements the io.Writer interface, but actually does not perform any write operations.

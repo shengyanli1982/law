@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	x "github.com/shengyanli1982/law"
-	xu "github.com/shengyanli1982/law/internal/util"
+	xu "github.com/shengyanli1982/law/internal/utils"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

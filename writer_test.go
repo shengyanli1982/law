@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shengyanli1982/law/internal/util"
+	"github.com/shengyanli1982/law/internal/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,15 +15,15 @@ type callback struct {
 }
 
 func (c *callback) OnPushQueue(b []byte) {
-	c.a0 = append(c.a0, util.BytesToString(b))
+	c.a0 = append(c.a0, utils.BytesToString(b))
 }
 
 func (c *callback) OnPopQueue(b []byte, _ int64) {
-	c.a1 = append(c.a1, util.BytesToString(b))
+	c.a1 = append(c.a1, utils.BytesToString(b))
 }
 
 func (c *callback) OnWrite(b []byte) {
-	c.a2 = append(c.a2, util.BytesToString(b))
+	c.a2 = append(c.a2, utils.BytesToString(b))
 }
 
 func TestWriteAsyncer_Standard(t *testing.T) {

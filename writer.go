@@ -11,7 +11,7 @@ import (
 	"time"
 
 	lf "github.com/shengyanli1982/law/internal/lockfree"
-	"github.com/shengyanli1982/law/internal/util"
+	"github.com/shengyanli1982/law/internal/utils"
 )
 
 // 定义默认的心跳间隔为 500 毫秒
@@ -370,7 +370,7 @@ func (wa *WriteAsyncer) executeFunc(elem *Element) {
 	if _, err := wa.flushBufferedWriter(elem.buffer); err != nil {
 		// 如果写入失败，那么记录错误日志
 		// If the write fails, then log the error
-		wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(elem.buffer))
+		wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), utils.BytesToString(elem.buffer))
 	}
 
 	// 重置元素的状态
