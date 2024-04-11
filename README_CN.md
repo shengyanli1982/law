@@ -3,9 +3,12 @@
 <div align="center">
 	<h1>LAW</h1>
 	<p>一个轻量级的异步IO库，提升日志记录、流式传输等操作的性能和效率。</p>
-	<img src="assets/logo.png" alt="logo" width="300px">
-    
+	<img src="assets/logo.png" alt="logo" width="450px">
 </div>
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/law)](https://goreportcard.com/report/github.com/shengyanli1982/law)
+[![Build Status](https://github.com/shengyanli1982/law/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/law/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/law.svg)](https://pkg.go.dev/github.com/shengyanli1982/law)
 
 # 简介
 

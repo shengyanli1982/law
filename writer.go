@@ -10,413 +10,396 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shengyanli1982/law/internal/pool"
-	lfq "github.com/shengyanli1982/law/internal/queue"
-	lfs "github.com/shengyanli1982/law/internal/stack"
+	lf "github.com/shengyanli1982/law/internal/lockfree"
 	"github.com/shengyanli1982/law/internal/util"
 )
 
-const (
-	// defaultHeartbeatInterval 是 poller 检查队列的默认间隔
-	// defaultHeartbeatInterval is the default interval for the poller to check the queue
-	defaultHeartbeatInterval = 500 * time.Millisecond
+// 定义默认的心跳间隔为 500 毫秒
+// Define the default heartbeat interval as 500 milliseconds
+const defaultHeartbeatInterval = 500 * time.Millisecond
 
-	// defaultIdleTimeout 是 poller 的默认空闲超时时间
-	// defaultIdleTimeout is the default idle timeout for the poller
-	defaultIdleTimeout = 5 * time.Second
-)
+// 定义默认的空闲超时为 5 秒
+// Define the default idle timeout as 5 seconds
+const defaultIdleTimeout = 5 * time.Second
 
-// ErrorWriteAsyncerIsClosed 表示 WriteAsyncer 已经关闭
-// ErrorWriteAsyncerIsClosed indicates that WriteAsyncer has been closed
+// 定义一个错误，表示写异步器已经关闭
+// Define an error indicating that the write asyncer is closed
 var ErrorWriteAsyncerIsClosed = errors.New("write asyncer is closed")
 
-// Element 是队列中的元素
-// Element is the element in the queue
-type Element struct {
-	buffer   []byte // 缓冲区，存储数据
-	updateAt int64  // 更新时间，记录元素最后一次被修改的时间
-}
-
-// Reset 重置元素
-// Reset resets the element
-func (e *Element) Reset() {
-	e.buffer = nil // 清空缓冲区
-	e.updateAt = 0 // 重置更新时间
-}
-
-// Status 是 WriteAsyncer 的状态
-// Status is the status of WriteAsyncer
+// Status 结构体用于表示写异步器的状态
+// The Status struct is used to represent the status of the write asyncer
 type Status struct {
-	// running 表示 WriteAsyncer 是否在运行
-	// running indicates whether WriteAsyncer is running
+	// running 表示写异步器是否正在运行
+	// running indicates whether the write asyncer is running
 	running atomic.Bool
 
-	// executeAt 表示上次执行的时间
-	// executeAt indicates the last time of execution
+	// executeAt 表示下一次执行的时间
+	// executeAt represents the time of the next execution
 	executeAt atomic.Int64
 }
 
-// WriteAsyncer 是一个异步写入器，它使用一个无锁队列和一个带缓冲的写入器来实现异步写入
-// WriteAsyncer is an async writer that uses a lock-free queue and a buffered writer to implement async writing
+// WriteAsyncer 结构体用于实现写异步器
+// The WriteAsyncer struct is used to implement the write asyncer
 type WriteAsyncer struct {
-	// config 是 WriteAsyncer 的配置信息，包含各种参数
-	// config is the configuration information of WriteAsyncer, containing various parameters
+	// config 用于存储写异步器的配置
+	// config is used to store the configuration of the write asyncer
 	config *Config
 
-	// queue 是一个队列接口，用于存储待写入的数据
-	// queue is a queue interface used to store data to be written
+	// queue 用于存储待写入的数据
+	// queue is used to store the data to be written
 	queue QueueInterface
 
-	// writer 是实际执行写入操作的对象
-	// writer is the object that actually performs the write operation
+	// writer 用于写入数据
+	// writer is used to write data
 	writer io.Writer
 
-	// bufferedWriter 是一个带缓冲的写入器，它可以减少实际的 IO 操作次数
-	// bufferedWriter is a buffered writer that can reduce the actual number of IO operations
+	// bufferedWriter 用于缓冲写入的数据
+	// bufferedWriter is used to buffer the data to be written
 	bufferedWriter *bufio.Writer
 
-	// timer 是一个原子整数，用于存储当前的时间戳
-	// timer is an atomic integer used to store the current timestamp
+	// timer 用于控制写入的时间
+	// timer is used to control the time of writing
 	timer atomic.Int64
 
-	// once 是一个 sync.Once 对象，用于确保某些操作只执行一次
-	// once is a sync.Once object used to ensure that certain operations are only performed once
+	// once 用于确保某个操作只执行一次
+	// once is used to ensure that an operation is performed only once
 	once sync.Once
 
-	// ctx 是一个 context.Context 对象，用于控制 WriteAsyncer 的生命周期
-	// ctx is a context.Context object used to control the lifecycle of WriteAsyncer
+	// ctx 用于控制写异步器的生命周期
+	// ctx is used to control the lifecycle of the write asyncer
 	ctx context.Context
 
-	// cancel 是一个取消函数，用于取消 ctx
-	// cancel is a cancel function used to cancel ctx
+	// cancel 用于取消写异步器的操作
+	// cancel is used to cancel the operation of the write asyncer
 	cancel context.CancelFunc
 
-	// wg 是一个 sync.WaitGroup 对象，用于等待所有的 goroutine 结束
-	// wg is a sync.WaitGroup object used to wait for all goroutines to end
+	// wg 用于等待写异步器的所有操作完成
+	// wg is used to wait for all operations of the write asyncer to complete
 	wg sync.WaitGroup
 
-	// state 是 WriteAsyncer 的状态，包含运行状态和最后执行时间
-	// state is the status of WriteAsyncer, including running status and last execution time
+	// state 用于存储写异步器的状态
+	// state is used to store the status of the write asyncer
 	state Status
 
-	// elementpool 是一个元素池，用于存储和复用 Element 对象
-	// elementpool is an element pool used to store and reuse Element objects
-	elementpool *pool.Pool
+	// elementpool 用于存储元素的池
+	// elementpool is used to store the pool of elements
+	elementpool *ElementPool
 }
 
-// NewWriteAsyncer 返回一个 WriteAsyncer 实例
-// NewWriteAsyncer returns an instance of WriteAsyncer
+// NewWriteAsyncer 函数用于创建一个新的 WriteAsyncer 实例
+// The NewWriteAsyncer function is used to create a new WriteAsyncer instance
 func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
-	// 如果 writer 为空，则使用 os.Stdout
-	// If writer is nil, use os.Stdout
+	// 如果 writer 参数为 nil，那么将其设置为 os.Stdout
+	// If the writer parameter is nil, then set it to os.Stdout
 	if writer == nil {
 		writer = os.Stdout
 	}
 
-	// 判断 conf 配置内容是否有效
-	// Check if the conf configuration is valid
+	// 检查配置是否有效，如果无效则使用默认配置
+	// Check if the configuration is valid, if not, use the default configuration
 	conf = isConfigValid(conf)
 
-	// 初始化 WriteAsyncer 实例
-	// Initialize the WriteAsyncer instance
+	// 创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance
 	wa := &WriteAsyncer{
 		// 设置配置
-		// Set configuration
+		// Set the configuration
 		config: conf,
 
-		// 创建无锁队列
-		// Create lock-free queue
-		queue: lfq.NewLockFreeQueue(),
+		// 创建一个新的无锁队列
+		// Create a new lock-free queue
+		queue: lf.NewLockFreeQueue(),
 
 		// 设置写入器
-		// Set writer
+		// Set the writer
 		writer: writer,
 
-		// 创建带缓冲的写入器
-		// Create buffered writer
-		bufferedWriter: bufio.NewWriterSize(writer, conf.buffsize),
+		// 创建一个新的带有指定缓冲区大小的 bufio.Writer 实例
+		// Create a new bufio.Writer instance with the specified buffer size
+		bufferedWriter: bufio.NewWriterSize(writer, conf.buffSize),
 
 		// 初始化状态
-		// Initialize status
+		// Initialize the status
 		state: Status{},
 
-		// 创建元素池
-		// Create element pool
-		elementpool: pool.NewPool(func() any { return &Element{} }, lfs.NewLockFreeStack()),
+		// 创建一个新的元素池
+		// Create a new element pool
+		elementpool: NewElementPool(),
 
 		// 初始化计时器
-		// Initialize timer
+		// Initialize the timer
 		timer: atomic.Int64{},
 
-		// 初始化 sync.Once
-		// Initialize sync.Once
+		// 初始化 once
+		// Initialize once
 		once: sync.Once{},
 
-		// 初始化 WaitGroup
-		// Initialize WaitGroup
+		// 初始化 wg
+		// Initialize wg
 		wg: sync.WaitGroup{},
 	}
 
-	// 创建带取消功能的 context
-	// Create a context with cancellation
+	// 创建一个新的 context.Context 实例，并设置一个取消函数
+	// Create a new context.Context instance and set a cancel function
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
 
-	// 设置执行时间
-	// Set execution time
+	// 设置下一次执行的时间为当前时间
+	// Set the time of the next execution to the current time
 	wa.state.executeAt.Store(time.Now().UnixMilli())
 
-	// 设置运行状态为 true
-	// Set running status to true
+	// 设置 running 为 true，表示 WriteAsyncer 正在运行
+	// Set running to true, indicating that WriteAsyncer is running
 	wa.state.running.Store(true)
 
-	// 增加 WaitGroup 的计数
-	// Increase the count of WaitGroup
+	// 增加 wg 的计数
+	// Increase the count of wg
 	wa.wg.Add(2)
 
-	// 启动轮询器
-	// Start the poller
+	// 启动 poller 协程
+	// Start the poller goroutine
 	go wa.poller()
 
-	// 启动计时器更新器
-	// Start the timer updater
+	// 启动 updateTimer 协程
+	// Start the updateTimer goroutine
 	go wa.updateTimer()
 
-	// 返回 WriteAsyncer 实例
-	// Return the WriteAsyncer instance
+	// 返回新创建的 WriteAsyncer 实例
+	// Return the newly created WriteAsyncer instance
 	return wa
 }
 
-// Stop 停止 WriteAsyncer
-// Stop stops WriteAsyncer
+// Stop 方法用于停止 WriteAsyncer
+// The Stop method is used to stop the WriteAsyncer
 func (wa *WriteAsyncer) Stop() {
-	// 使用 sync.Once 确保 Stop 方法只被执行一次
-	// Use sync.Once to ensure that the Stop method is only executed once
+	// 使用 once.Do 方法确保以下的操作只执行一次
+	// Use the once.Do method to ensure that the following operations are performed only once
 	wa.once.Do(func() {
-		// 将 running 状态设为 false，表示 WriteAsyncer 已经停止
-		// Set the running state to false, indicating that WriteAsyncer has stopped
+		// 将 running 状态设置为 false，表示 WriteAsyncer 已经停止
+		// Set the running status to false, indicating that the WriteAsyncer has stopped
 		wa.state.running.Store(false)
 
-		// 调用 cancel 函数，取消所有的 context
-		// Call the cancel function to cancel all contexts
+		// 调用 cancel 函数取消 WriteAsyncer 的所有操作
+		// Call the cancel function to cancel all operations of the WriteAsyncer
 		wa.cancel()
 
-		// 等待所有的 goroutine 结束
-		// Wait for all goroutines to end
+		// 等待 WriteAsyncer 的所有操作完成
+		// Wait for all operations of the WriteAsyncer to complete
 		wa.wg.Wait()
 
-		// 清理队列中的所有元素，将它们写入到 Writer
-		// Clean up all elements in the queue and write them to Writer
-		wa.cleaningQueueToWriter()
+		// 将队列中的所有数据写入到 writer
+		// Write all data in the queue to the writer
+		wa.cleanQueueToWriter()
 
-		// 刷新 bufferedWriter 中的所有数据
-		// Flush all data in bufferedWriter
+		// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
+		// Flush the bufferedWriter, writing all buffered data to the writer
 		wa.bufferedWriter.Flush()
 	})
 }
 
-// Write 实现了 io.Writer 接口，用于将数据写入到 WriteAsyncer
-// Write implements the io.Writer interface, used to write data to WriteAsyncer
+// Write 方法用于将数据写入到 WriteAsyncer
+// The Write method is used to write data to the WriteAsyncer
 func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
-	// 如果 WriteAsyncer 已经关闭，就返回错误
-	// If WriteAsyncer has been closed, return an error
+	// 如果 WriteAsyncer 已经停止，那么返回错误
+	// If the WriteAsyncer has stopped, then return an error
 	if !wa.state.running.Load() {
 		return 0, ErrorWriteAsyncerIsClosed
 	}
 
-	// 从资源池中获取元素，并更新元素数据
-	// Get the element from the resource pool and update the element data
-	element := wa.elementpool.Get().(*Element)
+	// 从元素池中获取一个元素
+	// Get an element from the element pool
+	element := wa.elementpool.Get()
 
-	// 更新元素的缓冲区数据
-	// Update the buffer data of the element
+	// 将数据设置到元素的 buffer 字段
+	// Set the data to the buffer field of the element
 	element.buffer = p
 
-	// 更新元素的时间戳
-	// Update the timestamp of the element
+	// 将当前的时间设置到元素的 updateAt 字段
+	// Set the current time to the updateAt field of the element
 	element.updateAt = wa.timer.Load()
 
-	// 将数据写入到队列中
-	// Write data to the queue
+	// 将元素添加到队列
+	// Add the element to the queue
 	wa.queue.Push(element)
 
-	// 调用回调方法，通知数据已经被推入队列
-	// Call the callback method to notify that the data has been pushed into the queue
+	// 调用回调函数 OnPushQueue
+	// Call the callback function OnPushQueue
 	wa.config.callback.OnPushQueue(p)
 
-	// 返回写入的数据长度和 nil 错误
-	// Return the length of the written data and nil error
+	// 返回数据的长度和 nil 错误
+	// Return the length of the data and a nil error
 	return len(p), nil
 }
 
-// flushBufferedWriter 将缓冲区中的数据写入到底层 io.Writer
-// flushBufferedWriter writes the data in the buffer to the underlying io.Writer
+// flushBufferedWriter 方法用于将数据写入到 bufferedWriter
+// The flushBufferedWriter method is used to write data to the bufferedWriter
 func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
-	// 调用回调方法
-	// Call the callback method
+	// 调用回调函数 OnWrite
+	// Call the callback function OnWrite
 	wa.config.callback.OnWrite(p)
 
-	// 如果缓冲区可用空间不足，并且缓冲区中有数据，则先将缓冲区中的数据写入目标
-	// If the available space in the buffer is not enough and there is data in the buffer, write the data in the buffer to the target first
+	// 如果数据的长度大于 bufferedWriter 的可用空间，并且 bufferedWriter 中已经有缓冲的数据
+	// If the length of the data is greater than the available space of the bufferedWriter, and there is already buffered data in the bufferedWriter
 	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
-		// 如果 Flush 失败，则直接将数据写入目标
-		// If Flush fails, write the data directly to the target
+		// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
+		// Flush the bufferedWriter, writing all buffered data to the writer
 		if err := wa.bufferedWriter.Flush(); err != nil {
+			// 如果刷新失败，那么直接将数据写入到 writer，并返回写入的长度和错误
+			// If the flush fails, then write the data directly to the writer and return the length of the write and the error
 			return wa.writer.Write(p)
 		}
 	}
 
-	// 将数据写入缓冲区
-	// Write data to the buffer
+	// 将数据写入到 bufferedWriter，并返回写入的长度和错误
+	// Write the data to the bufferedWriter and return the length of the write and the error
 	return wa.bufferedWriter.Write(p)
 }
 
-// poller 是一个轮询器，用于检查队列中的数据并将其写入到底层 io.Writer
-// poller is a poller that checks the data in the queue and writes it to the underlying io.Writer
+// poller 方法用于从队列中获取元素并执行相应的函数
+// The poller method is used to get elements from the queue and execute the corresponding functions
 func (wa *WriteAsyncer) poller() {
-	// 启动心跳检测
-	// Start heartbeat detection
+	// 创建一个新的定时器，用于定时检查队列
+	// Create a new timer for periodically checking the queue
 	heartbeat := time.NewTicker(defaultHeartbeatInterval)
 
-	// 定义退出机制
-	// Define the exit mechanism
+	// 使用 defer 语句确保在函数结束时停止定时器并完成减少 WaitGroup 的计数
+	// Use a defer statement to ensure that the timer is stopped and the count of WaitGroup is reduced when the function ends
 	defer func() {
-		heartbeat.Stop() // 停止心跳检测
-		wa.wg.Done()     // 减少等待组的计数
+		heartbeat.Stop()
+		wa.wg.Done()
 	}()
 
-	// 循环检查队列中的数据
-	// Loop to check the data in the queue
+	// 使用无限循环来不断从队列中获取元素
+	// Use an infinite loop to continuously get elements from the queue
 	for {
-		// 从队列中弹出一个元素
-		// Pop an element from the queue
+		// 从队列中获取一个元素
+		// Get an element from the queue
 		elem := wa.queue.Pop()
 
-		// 检查元素是否为空
-		// Check if the element is null
+		// 如果获取到的元素不为 nil，那么执行相应的函数
+		// If the obtained element is not nil, then execute the corresponding function
 		if elem != nil {
-			// 如果元素不为空就执行 executeFunc
-			// If the element is not empty, execute executeFunc
 			wa.executeFunc(elem.(*Element))
 		} else {
-			// 使用 select 语句等待多个通道操作
-			// Use select statement to wait for multiple channel operations
+			// 如果获取到的元素为 nil，那么等待一段时间或者接收到 ctx.Done 的信号
+			// If the obtained element is nil, then wait for a period of time or receive the ctx.Done signal
 			select {
-			// 如果收到了 ctx 的 Done 信号，就退出
-			// If the Done signal of ctx is received, exit
+			// 如果接收到 ctx.Done 的信号，那么结束循环
+			// If the ctx.Done signal is received, then end the loop
 			case <-wa.ctx.Done():
 				return
 
-			// 如果没有元素，就等待心跳信号
-			// If there is no element, wait for the heartbeat signal
+			// 如果等待了一段时间，那么检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间
+			// If a period of time has passed, then check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout
 			case <-heartbeat.C:
-				// 获取当前时间戳，计算 diff
-				// Get the current timestamp and calculate diff
+				// 获取当前时间
+				// Get the current time
 				now := wa.timer.Load()
+
+				// 计算当前时间与上次执行时间的差值
+				// Calculate the difference between the current time and the last execution time
 				diff := now - wa.state.executeAt.Load()
 
-				// 如果 bufferedWriter 中有数据，并且 diff 大于默认的空闲超时时间，就 flush bufferedWriter
-				// If there is data in bufferedWriter and diff is greater than the default idle timeout, flush bufferedWriter
+				// 如果 bufferedWriter 中有缓冲的数据，并且已经超过了空闲超时时间
+				// If there is buffered data in the bufferedWriter and it has exceeded the idle timeout
 				if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
+					// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
+					// Flush the bufferedWriter, writing all buffered data to the writer
 					if err := wa.bufferedWriter.Flush(); err != nil {
-						// 如果 flush bufferedWriter 出错，就记录错误日志
-						// If flushing bufferedWriter fails, log the error
+						// 如果刷新失败，那么记录错误日志
+						// If the flush fails, then log the error
 						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
 					}
 
-					// 更新 executeAt 的时间
-					// Update the time of executeAt
+					// 更新上次执行时间为当前时间
+					// Update the last execution time to the current time
 					wa.state.executeAt.Store(now)
-				}
-
-				// 如果 diff 大于默认的空闲超时时间的 6 倍，就 prune elementpool
-				// If diff is greater than 6 times the default idle timeout, prune elementpool
-				if diff > defaultIdleTimeout.Milliseconds()*6 {
-					wa.elementpool.Prune()
 				}
 			}
 		}
-
 	}
 }
 
-// updateTimer 是一个定时器，用于更新 WriteAsyncer 的时间戳
-// updateTimer is a timer that updates the timestamp of WriteAsyncer
+// updateTimer 方法用于更新 WriteAsyncer 的 timer 字段
+// The updateTimer method is used to update the timer field of the WriteAsyncer
 func (wa *WriteAsyncer) updateTimer() {
 	// 创建一个每秒触发一次的定时器
 	// Create a timer that triggers once per second
 	ticker := time.NewTicker(time.Second)
 
-	// 使用 defer 语句确保在函数退出时停止定时器并减少等待组的计数
-	// Use a defer statement to ensure that the timer is stopped and the wait group count is decreased when the function exits
+	// 使用 defer 语句确保在函数返回时停止定时器并减少 WaitGroup 的计数
+	// Use a defer statement to ensure that the timer is stopped and the WaitGroup count is decremented when the function returns
 	defer func() {
-		ticker.Stop() // 停止定时器
-		wa.wg.Done()  // 减少等待组的计数
+		ticker.Stop()
+		wa.wg.Done()
 	}()
 
-	// 使用无限循环来持续更新时间戳
-	// Use an infinite loop to continuously update the timestamp
+	// 使用无限循环来不断检查定时器和 ctx.Done 通道
+	// Use an infinite loop to continuously check the timer and ctx.Done channel
 	for {
 		select {
-		// 如果收到上下文的 Done 信号，就退出循环
-		// If the Done signal of the context is received, exit the loop
+		// 如果 ctx.Done 通道接收到数据，那么返回，结束这个函数
+		// If the ctx.Done channel receives data, then return and end this function
 		case <-wa.ctx.Done():
 			return
 
-		// 如果定时器触发，就更新时间戳
-		// If the timer triggers, update the timestamp
+		// 如果定时器触发，那么更新 timer 字段为当前的 Unix 毫秒时间
+		// If the timer triggers, then update the timer field to the current Unix millisecond time
 		case <-ticker.C:
-			// 使用当前的 Unix 毫秒时间戳更新 timer
-			// Update timer with the current Unix millisecond timestamp
 			wa.timer.Store(time.Now().UnixMilli())
 		}
 	}
 }
 
-// executeFunc 是 poller 的执行函数
-// executeFunc is the execution function of the poller
+// executeFunc 方法用于执行 WriteAsyncer 的写入操作
+// The executeFunc method is used to perform the write operation of the WriteAsyncer
 func (wa *WriteAsyncer) executeFunc(elem *Element) {
-	// 从 timer 中加载当前的时间戳
-	// Load the current timestamp from timer
+	// 获取当前的 Unix 毫秒时间
+	// Get the current Unix millisecond time
 	now := wa.timer.Load()
 
-	// 将当前的时间戳存储到 state 的 executeAt 中
-	// Store the current timestamp in state's executeAt
+	// 更新上次执行时间为当前时间
+	// Update the last execution time to the current time
 	wa.state.executeAt.Store(now)
 
-	// 调用回调方法，传入 buffer 和当前时间与更新时间的差值
-	// Call the callback method, passing in the buffer and the difference between the current time and the update time
+	// 调用回调函数 OnPopQueue
+	// Call the callback function OnPopQueue
 	wa.config.callback.OnPopQueue(elem.buffer, now-elem.updateAt)
 
-	// 将 buffer 中的内容写入到底层 io.Writer，如果有错误就是调用 logger 的 Errorf 方法
-	// Write the content in the buffer to the underlying io.Writer, if there is an error, call the Errorf method of logger
+	// 将元素的数据写入到 bufferedWriter
+	// Write the data of the element to the bufferedWriter
 	if _, err := wa.flushBufferedWriter(elem.buffer); err != nil {
+		// 如果写入失败，那么记录错误日志
+		// If the write fails, then log the error
 		wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(elem.buffer))
 	}
 
-	// 重置元素，并归还资源池
-	// Reset the element and return it to the resource pool
+	// 重置元素的状态
+	// Reset the state of the element
 	elem.Reset()
+
+	// 将元素放回到元素池
+	// Put the element back into the element pool
 	wa.elementpool.Put(elem)
 }
 
-// cleaningQueueToWriter 是一个方法，用于清理队列中的所有元素，并将它们写入到底层的 io.Writer
-// cleaningQueueToWriter is a method that cleans up all elements in the queue and writes them to the underlying io.Writer
-func (wa *WriteAsyncer) cleaningQueueToWriter() {
-	// 循环处理队列中的所有元素
-	// Process all elements in the queue in a loop
+// cleanQueueToWriter 方法用于将队列中的所有数据写入到 writer
+// The cleanQueueToWriter method is used to write all data in the queue to the writer
+func (wa *WriteAsyncer) cleanQueueToWriter() {
+	// 使用无限循环来不断从队列中取出元素并执行写入操作
+	// Use an infinite loop to continuously take elements from the queue and perform write operations
 	for {
 		// 从队列中取出一个元素
-		// Pop an element from the queue
+		// Take an element from the queue
 		elem := wa.queue.Pop()
 
-		// 如果元素为空，就退出循环
-		// If the element is nil, break the loop
+		// 如果元素为 nil，那么跳出循环
+		// If the element is nil, then break the loop
 		if elem == nil {
 			break
 		}
 
-		// 将元素转换为 *Element 类型，并执行 executeFunc 方法
-		// Convert the element to *Element type and execute the executeFunc method
+		// 执行写入操作
+		// Perform the write operation
 		wa.executeFunc(elem.(*Element))
 	}
 }
