@@ -4,9 +4,12 @@ English | [中文](./README_CN.md)
 	<h1>LAW</h1>
 	<p>A lightweight elevate I/O with Asynchronous io.Writer<p>
 	<p>Boost performance and efficiency effortlessly for logging, streaming, and more.</p>
-	<img src="assets/logo.png" alt="logo" width="350px">
-    
+	<img src="assets/logo.png" alt="logo" width="450px">
 </div>
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/law)](https://goreportcard.com/report/github.com/shengyanli1982/law)
+[![Build Status](https://github.com/shengyanli1982/law/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/law/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/law.svg)](https://pkg.go.dev/github.com/shengyanli1982/law)
 
 # Introduction
 
