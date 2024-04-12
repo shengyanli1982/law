@@ -497,14 +497,14 @@ goos: darwin
 goarch: amd64
 pkg: github.com/shengyanli1982/law/benchmark
 cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-12            	1000000000	         0.2796 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-12    	1000000000	         0.2156 ns/op	       0 B/op	       0 allocs/op
-BenchmarkLogAsyncWriter-12             	 5184232	       268.9 ns/op	      61 B/op	       3 allocs/op
-BenchmarkLogAsyncWriterParallel-12     	 4275908	       244.5 ns/op	      58 B/op	       3 allocs/op
-BenchmarkZapSyncWriter-12              	 3242724	       341.0 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-12      	21295935	        60.57 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-12             	 2179002	       694.4 ns/op	      62 B/op	       2 allocs/op
-BenchmarkZapAsyncWriterParallel-12     	 5183258	       387.7 ns/op	      73 B/op	       2 allocs/op
+BenchmarkBlackHoleWriter-8           	1000000000	         0.2905 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2557 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLogAsyncWriter-8            	 4515822	       229.1 ns/op	      61 B/op	       3 allocs/op
+BenchmarkLogAsyncWriterParallel-8    	 4604298	       251.1 ns/op	      61 B/op	       3 allocs/op
+BenchmarkZapSyncWriter-8             	 3294104	       352.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapSyncWriterParallel-8     	23504499	        59.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapAsyncWriter-8            	 2173760	       551.0 ns/op	      56 B/op	       2 allocs/op
+BenchmarkZapAsyncWriterParallel-8    	 4663755	       258.1 ns/op	      56 B/op	       2 allocs/op
 ```
 
 `LAW`采用了双缓冲策略进行日志记录，与 `zapcore.AddSync(BlackHoleWriter)` 相比，这可能会稍微影响性能。这是因为当 `LAW` 与 `zap` 集成时，它间接地利用了 zap 的写入缓冲区。`zap` 通过一个 `deque` 将数据传递给 `LAW`，然后将其刷新到 `io.Writer`（`BlackHoleWriter`）。因此，`LAW`的性能是 `BenchmarkZapSyncWriter` 和 `BenchmarkLogAsyncWriter` 的总和，相当于 `BenchmarkZapAsyncWriter`。
