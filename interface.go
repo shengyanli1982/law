@@ -27,9 +27,9 @@ type Callback interface {
 	// The OnWriteSuccess method is called when data is successfully written.
 	OnWriteSuccess([]byte)
 
-	// OnWriteFailure 方法在数据写入失败时调用，会传入失败的错误信息。
-	// The OnWriteFailure method is called when data writing fails, and the failure error information will be passed in.
-	OnWriteFailure([]byte, error)
+	// OnWriteFailed 方法在数据写入失败时调用，会传入失败的错误信息。
+	// The OnWriteFailed method is called when data writing fails, and the failure error information will be passed in.
+	OnWriteFailed([]byte, error)
 }
 
 // emptyCallback 是一个实现了 Callback 接口的结构体，但所有方法的实现都为空。
@@ -48,9 +48,9 @@ func (c *emptyCallback) OnPopQueue([]byte, int64) {}
 // OnWriteSuccess is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
 func (c *emptyCallback) OnWriteSuccess([]byte) {}
 
-// OnWriteFailure 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
-// OnWriteFailure is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
-func (c *emptyCallback) OnWriteFailure([]byte, error) {}
+// OnWriteFailed 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
+// OnWriteFailed is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
+func (c *emptyCallback) OnWriteFailed([]byte, error) {}
 
 // newEmptyCallback 是一个构造函数，用于创建一个新的 emptyCallback 实例。
 // newEmptyCallback is a constructor function for creating a new emptyCallback instance.

@@ -297,7 +297,7 @@ func (wa *WriteAsyncer) poller() {
 					if err := wa.bufferedWriter.Flush(); err != nil {
 						// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
 						// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
-						wa.config.callback.OnWriteFailure(nil, err)
+						wa.config.callback.OnWriteFailed(nil, err)
 					}
 
 					// 更新上次执行时间为当前时间
@@ -360,7 +360,7 @@ func (wa *WriteAsyncer) executeFunc(elem *Element) {
 	if _, err := wa.flushBufferedWriter(elem.buffer); err != nil {
 		// 如果写入失败，调用回调函数 OnWriteFailure
 		// If the write fails, call the callback function OnWriteFailure
-		wa.config.callback.OnWriteFailure(elem.buffer, err)
+		wa.config.callback.OnWriteFailed(elem.buffer, err)
 	} else {
 		// 如果写入成功，调用回调函数 OnWriteSuccess
 		// If the write is successful, call the callback function OnWriteSuccess

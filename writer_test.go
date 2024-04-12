@@ -27,7 +27,7 @@ func (c *callback) OnWriteSuccess(b []byte) {
 	c.a2 = append(c.a2, utils.BytesToString(b))
 }
 
-func (c *callback) OnWriteFailure(b []byte, err error) {
+func (c *callback) OnWriteFailed(b []byte, err error) {
 	c.a3 = append(c.a3, utils.BytesToString(b))
 	c.e3 = append(c.e3, err)
 }
