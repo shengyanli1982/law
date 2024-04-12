@@ -144,11 +144,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 	// 增加 wg 的计数
 	// Increase the count of wg
-	wa.wg.Add(3)
-
-	// 启动 saver 协程
-	// Start the saver goroutine
-	go wa.saver()
+	wa.wg.Add(2)
 
 	// 启动 poller 协程
 	// Start the poller goroutine
@@ -246,9 +242,9 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 	return wa.bufferedWriter.Write(p)
 }
 
-// saver 方法用于定时检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间，如果有则刷新 bufferedWriter
-// The saver method is used to periodically check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout, if so, then flush the bufferedWriter
-func (wa *WriteAsyncer) saver() {
+// poller 方法用于从队列中获取元素并执行相应的函数
+// The poller method is used to get elements from the queue and execute the corresponding functions
+func (wa *WriteAsyncer) poller() {
 	// 创建一个新的定时器，用于定时检查队列
 	// Create a new timer for periodically checking the queue
 	heartbeat := time.NewTicker(defaultHeartbeatInterval)
@@ -260,9 +256,9 @@ func (wa *WriteAsyncer) saver() {
 		wa.wg.Done()
 	}()
 
+	// 使用无限循环来不断从队列中获取元素
+	// Use an infinite loop to continuously get elements from the queue
 	for {
-		// 如果获取到的元素为 nil，那么等待一段时间或者接收到 ctx.Done 的信号
-		// If the obtained element is nil, then wait for a period of time or receive the ctx.Done signal
 		select {
 		// 如果接收到 ctx.Done 的信号，那么结束循环
 		// If the ctx.Done signal is received, then end the loop
@@ -295,32 +291,6 @@ func (wa *WriteAsyncer) saver() {
 				// Update the last execution time to the current time
 				wa.state.executeAt.Store(now)
 			}
-		}
-	}
-}
-
-// poller 方法用于从队列中获取元素并执行相应的函数
-// The poller method is used to get elements from the queue and execute the corresponding functions
-func (wa *WriteAsyncer) poller() {
-	// 创建一个新的定时器，用于定时检查队列
-	// Create a new timer for periodically checking the queue
-	heartbeat := time.NewTicker(defaultHeartbeatInterval)
-
-	// 使用 defer 语句确保在函数结束时停止定时器并完成减少 WaitGroup 的计数
-	// Use a defer statement to ensure that the timer is stopped and the count of WaitGroup is reduced when the function ends
-	defer func() {
-		heartbeat.Stop()
-		wa.wg.Done()
-	}()
-
-	// 使用无限循环来不断从队列中获取元素
-	// Use an infinite loop to continuously get elements from the queue
-	for {
-		select {
-		// 如果接收到 ctx.Done 的信号，那么结束循环
-		// If the ctx.Done signal is received, then end the loop
-		case <-wa.ctx.Done():
-			return
 
 		// 默认情况下，尝试从队列中弹出一个元素
 		// By default, try to pop an element from the queue
