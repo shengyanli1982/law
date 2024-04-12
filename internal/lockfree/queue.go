@@ -5,6 +5,10 @@ import (
 	"unsafe"
 )
 
+var emptyValue = struct{}{}
+
+var emptyNode = NewNode(emptyValue)
+
 // LockFreeQueue 是一个无锁队列结构体
 // LockFreeQueue is a lock-free queue struct
 type LockFreeQueue struct {
@@ -24,15 +28,11 @@ type LockFreeQueue struct {
 // NewLockFreeQueue 函数用于创建一个新的 LockFreeQueue 结构体实例
 // The NewLockFreeQueue function is used to create a new instance of the LockFreeQueue struct
 func NewLockFreeQueue() *LockFreeQueue {
-	// 创建一个新的 Node 结构体实例作为 dummy 节点
-	// Create a new instance of the Node struct as a dummy node
-	dummy := NewNode()
-
 	// 返回一个新的 LockFreeQueue 结构体实例，其中 head 和 tail 都指向 dummy 节点
 	// Returns a new instance of the LockFreeQueue struct, where both head and tail point to the dummy node
 	return &LockFreeQueue{
-		head: unsafe.Pointer(dummy),
-		tail: unsafe.Pointer(dummy),
+		head: unsafe.Pointer(emptyNode),
+		tail: unsafe.Pointer(emptyNode),
 	}
 }
 
@@ -41,7 +41,7 @@ func NewLockFreeQueue() *LockFreeQueue {
 func (q *LockFreeQueue) Push(value interface{}) {
 	// 创建一个新的 Node 结构体实例
 	// Create a new Node struct instance
-	node := NewNode()
+	node := NewNode(nil)
 
 	// 将新节点的 value 字段设置为传入的值
 	// Set the value field of the new node to the passed in value
@@ -137,9 +137,12 @@ func (q *LockFreeQueue) Pop() interface{} {
 					// Then reset the head node
 					head.Reset()
 
-					// 最后返回结果
-					// Finally return the result
-					return result
+					if result == emptyValue {
+						return nil
+					} else {
+						return result
+					}
+
 				}
 			}
 		}
@@ -157,14 +160,10 @@ func (q *LockFreeQueue) Length() uint64 {
 // Reset 方法用于重置 LockFreeQueue 队列
 // The Reset method is used to reset the LockFreeQueue queue
 func (q *LockFreeQueue) Reset() {
-	// 创建一个新的 Node 结构体实例
-	// Create a new Node struct instance
-	dummy := NewNode()
-
 	// 将队列的头节点和尾节点都设置为新创建的节点
 	// Set both the head node and the tail node of the queue to the newly created node
-	q.head = unsafe.Pointer(dummy)
-	q.tail = unsafe.Pointer(dummy)
+	q.head = unsafe.Pointer(emptyNode)
+	q.tail = unsafe.Pointer(emptyNode)
 
 	// 使用 atomic.StoreUint64 函数将队列的长度设置为 0
 	// Use the atomic.StoreUint64 function to set the length of the queue to 0
