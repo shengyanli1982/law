@@ -5,8 +5,12 @@ import (
 	"unsafe"
 )
 
+// 定义一个空的结构体，没有任何字段
+// Define an empty struct, with no fields
 var emptyValue = struct{}{}
 
+// 创建一个新的节点，节点的值为 emptyValue
+// Create a new node, the value of the node is emptyValue
 var emptyNode = NewNode(emptyValue)
 
 // LockFreeQueue 是一个无锁队列结构体
@@ -122,6 +126,10 @@ func (q *LockFreeQueue) Pop() interface{} {
 				// If the next node of the head node is not nil, it means that the tail node is lagging behind, try to set the tail node of the queue to the next node of the head node
 				compareAndSwapNode(&q.tail, tail, first)
 			} else {
+				// 并返回头节点的值
+				// And return the value of the head node
+				result := first.value
+
 				// 如果头节点不等于尾节点，尝试将队列的头节点设置为头节点的下一个节点
 				// If the head node is not equal to the tail node, try to set the head node of the queue to the next node of the head node
 				if compareAndSwapNode(&q.head, head, first) {
@@ -129,21 +137,26 @@ func (q *LockFreeQueue) Pop() interface{} {
 					// If successful, then decrease the length of the queue
 					atomic.AddUint64(&q.length, ^uint64(0))
 
-					// 并返回头节点的值
-					// And return the value of the head node
-					result := first.value
-
 					// 然后重置头节点
 					// Then reset the head node
 					head.Reset()
 
+					// 检查结果是否为空值
+					// Check if the result is an empty value
 					if result == emptyValue {
+						// 如果结果是空值，返回 nil
+						// If the result is an empty value, return nil
 						return nil
 					} else {
+						// 如果结果不是空值，返回结果
+						// If the result is not an empty value, return the result
 						return result
 					}
-
 				}
+
+				// 如果设置头节点失败，那么将结果设置为 nil
+				// If setting the head node fails, then set the result to nil
+				result = nil
 			}
 		}
 	}
