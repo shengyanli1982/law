@@ -11,6 +11,7 @@ import (
 	"time"
 
 	lf "github.com/shengyanli1982/law/internal/lockfree"
+	wr "github.com/shengyanli1982/law/internal/writer"
 )
 
 // 定义默认的心跳间隔为 500 毫秒
@@ -79,6 +80,10 @@ type WriteAsyncer struct {
 	// state 用于存储写异步器的状态
 	// state is used to store the status of the write asyncer
 	state Status
+
+	// elementpool 用于存储元素池
+	// elementpool is used to store the element pool
+	elementpool *wr.ElementPool
 }
 
 // NewWriteAsyncer 函数用于创建一个新的 WriteAsyncer 实例
@@ -128,6 +133,10 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		// 初始化 wg
 		// Initialize wg
 		wg: sync.WaitGroup{},
+
+		// 初始化元素池
+		// Initialize the element pool
+		elementpool: wr.NewElementPool(),
 	}
 
 	// 创建一个新的 context.Context 实例，并设置一个取消函数
@@ -198,16 +207,17 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 
 	// 从元素池中获取一个元素
 	// Get an elem from the elem pool
-	// elem := wa.elementpool.Get()
-	elem := NewElement()
+	elem := wa.elementpool.Get()
 
 	// 将数据设置到元素的 buffer 字段
 	// Set the data to the buffer field of the element
-	elem.buffer = p
+	if n, err = elem.GetBuffer().Write(p); err != nil {
+		return
+	}
 
 	// 将当前的时间设置到元素的 updateAt 字段
 	// Set the current time to the updateAt field of the element
-	elem.updateAt = wa.timer.Load()
+	elem.SetUpdateAt(wa.timer.Load())
 
 	// 将元素添加到队列
 	// Add the element to the queue
@@ -259,50 +269,47 @@ func (wa *WriteAsyncer) poller() {
 	// 使用无限循环来不断从队列中获取元素
 	// Use an infinite loop to continuously get elements from the queue
 	for {
-		select {
-		// 如果接收到 ctx.Done 的信号，那么结束循环
-		// If the ctx.Done signal is received, then end the loop
-		case <-wa.ctx.Done():
-			return
+		// 尝试从队列中弹出一个元素
+		// Try to pop an element from the queue
+		elem := wa.queue.Pop()
 
-		// 如果等待了一段时间，那么检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间
-		// If a period of time has passed, then check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout
-		case <-heartbeat.C:
-			// 获取当前时间
-			// Get the current time
-			now := wa.timer.Load()
+		// 如果元素不为空，执行 executeFunc 函数
+		// If the element is not null, execute the executeFunc function
+		if elem != nil {
+			wa.executeFunc(elem.(*wr.Element))
+		} else {
+			select {
+			// 如果接收到 ctx.Done 的信号，那么结束循环
+			// If the ctx.Done signal is received, then end the loop
+			case <-wa.ctx.Done():
+				return
 
-			// 计算当前时间与上次执行时间的差值
-			// Calculate the difference between the current time and the last execution time
-			diff := now - wa.state.executeAt.Load()
+			// 如果等待了一段时间，那么检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间
+			// If a period of time has passed, then check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout
+			case <-heartbeat.C:
+				// 获取当前时间
+				// Get the current time
+				now := wa.timer.Load()
 
-			// 如果 bufferedWriter 中有缓冲的数据，并且已经超过了空闲超时时间
-			// If there is buffered data in the bufferedWriter and it has exceeded the idle timeout
-			if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
-				// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
-				// Flush the bufferedWriter, writing all buffered data to the writer
-				if err := wa.bufferedWriter.Flush(); err != nil {
-					// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
-					// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
-					wa.config.callback.OnWriteFailed(nil, err)
+				// 计算当前时间与上次执行时间的差值
+				// Calculate the difference between the current time and the last execution time
+				diff := now - wa.state.executeAt.Load()
+
+				// 如果 bufferedWriter 中有缓冲的数据，并且已经超过了空闲超时时间
+				// If there is buffered data in the bufferedWriter and it has exceeded the idle timeout
+				if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
+					// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
+					// Flush the bufferedWriter, writing all buffered data to the writer
+					if err := wa.bufferedWriter.Flush(); err != nil {
+						// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
+						// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
+						wa.config.callback.OnWriteFailed(nil, err)
+					}
+
+					// 更新上次执行时间为当前时间
+					// Update the last execution time to the current time
+					wa.state.executeAt.Store(now)
 				}
-
-				// 更新上次执行时间为当前时间
-				// Update the last execution time to the current time
-				wa.state.executeAt.Store(now)
-			}
-
-		// 默认情况下，尝试从队列中弹出一个元素
-		// By default, try to pop an element from the queue
-		default:
-			// 尝试从队列中弹出一个元素
-			// Try to pop an element from the queue
-			elem := wa.queue.Pop()
-
-			// 如果元素不为空，执行 executeFunc 函数
-			// If the element is not null, execute the executeFunc function
-			if elem != nil {
-				wa.executeFunc(elem.(*Element))
 			}
 		}
 	}
@@ -341,7 +348,7 @@ func (wa *WriteAsyncer) updateTimer() {
 
 // executeFunc 方法用于执行 WriteAsyncer 的写入操作
 // The executeFunc method is used to perform the write operation of the WriteAsyncer
-func (wa *WriteAsyncer) executeFunc(elem *Element) {
+func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
 	// 获取当前的 Unix 毫秒时间
 	// Get the current Unix millisecond time
 	now := wa.timer.Load()
@@ -350,25 +357,32 @@ func (wa *WriteAsyncer) executeFunc(elem *Element) {
 	// Update the last execution time to the current time
 	wa.state.executeAt.Store(now)
 
+	// content 是一个变量，它获取 elem 的缓冲区的字节
+	// content is a variable that gets the bytes of the buffer of elem
+	content := elem.GetBuffer().Bytes()
+
+	// lastUpdateAt 是一个变量，它获取 elem 的更新时间
+	// lastUpdateAt is a variable that gets the update time of elem
+	lastUpdateAt := elem.GetUpdateAt()
+
 	// 调用回调函数 OnPopQueue
 	// Call the callback function OnPopQueue
-	wa.config.callback.OnPopQueue(elem.buffer, now-elem.updateAt)
+	wa.config.callback.OnPopQueue(content, now-lastUpdateAt)
 
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
-	if _, err := wa.flushBufferedWriter(elem.buffer); err != nil {
+	if _, err := wa.flushBufferedWriter(content); err != nil {
 		// 如果写入失败，调用回调函数 OnWriteFailure
 		// If the write fails, call the callback function OnWriteFailure
-		wa.config.callback.OnWriteFailed(elem.buffer, err)
+		wa.config.callback.OnWriteFailed(content, err)
 	} else {
 		// 如果写入成功，调用回调函数 OnWriteSuccess
 		// If the write is successful, call the callback function OnWriteSuccess
-		wa.config.callback.OnWriteSuccess(elem.buffer)
+		wa.config.callback.OnWriteSuccess(content)
 	}
-
-	// 重置元素的状态
-	// Reset the state of the element
-	elem.Reset()
+	// 将 elem 放回到 elementpool 中
+	// Put elem back into the elementpool
+	wa.elementpool.Put(elem)
 }
 
 // cleanQueueToWriter 方法用于将队列中的所有数据写入到 writer
@@ -389,6 +403,6 @@ func (wa *WriteAsyncer) cleanQueueToWriter() {
 
 		// 执行写入操作
 		// Perform the write operation
-		wa.executeFunc(elem.(*Element))
+		wa.executeFunc(elem.(*wr.Element))
 	}
 }
