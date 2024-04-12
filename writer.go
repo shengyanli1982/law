@@ -80,10 +80,6 @@ type WriteAsyncer struct {
 	// state 用于存储写异步器的状态
 	// state is used to store the status of the write asyncer
 	state Status
-
-	// elementpool 用于存储元素的池
-	// elementpool is used to store the pool of elements
-	elementpool *ElementPool
 }
 
 // NewWriteAsyncer 函数用于创建一个新的 WriteAsyncer 实例
@@ -121,10 +117,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		// 初始化状态
 		// Initialize the status
 		state: Status{},
-
-		// 创建一个新的元素池
-		// Create a new element pool
-		elementpool: NewElementPool(),
 
 		// 初始化计时器
 		// Initialize the timer
@@ -206,20 +198,21 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	}
 
 	// 从元素池中获取一个元素
-	// Get an element from the element pool
-	element := wa.elementpool.Get()
+	// Get an elem from the elem pool
+	// elem := wa.elementpool.Get()
+	elem := NewElement()
 
 	// 将数据设置到元素的 buffer 字段
 	// Set the data to the buffer field of the element
-	element.buffer = p
+	elem.buffer = p
 
 	// 将当前的时间设置到元素的 updateAt 字段
 	// Set the current time to the updateAt field of the element
-	element.updateAt = wa.timer.Load()
+	elem.updateAt = wa.timer.Load()
 
 	// 将元素添加到队列
 	// Add the element to the queue
-	wa.queue.Push(element)
+	wa.queue.Push(elem)
 
 	// 调用回调函数 OnPushQueue
 	// Call the callback function OnPushQueue
@@ -278,6 +271,8 @@ func (wa *WriteAsyncer) poller() {
 		// 如果获取到的元素不为 nil，那么执行相应的函数
 		// If the obtained element is not nil, then execute the corresponding function
 		if elem != nil {
+			// 使用类型断言将 elem 转换为 *Element 类型，然后传递给 executeFunc 函数执行
+			// Use type assertion to convert elem to *Element type, then pass it to executeFunc function for execution
 			wa.executeFunc(elem.(*Element))
 		} else {
 			// 如果获取到的元素为 nil，那么等待一段时间或者接收到 ctx.Done 的信号
@@ -376,10 +371,6 @@ func (wa *WriteAsyncer) executeFunc(elem *Element) {
 	// 重置元素的状态
 	// Reset the state of the element
 	elem.Reset()
-
-	// 将元素放回到元素池
-	// Put the element back into the element pool
-	wa.elementpool.Put(elem)
 }
 
 // cleanQueueToWriter 方法用于将队列中的所有数据写入到 writer
