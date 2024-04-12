@@ -19,10 +19,10 @@ type Node struct {
 
 // NewNode 函数用于创建一个新的 Node 结构体实例
 // The NewNode function is used to create a new instance of the Node struct
-func NewNode() *Node {
+func NewNode(v interface{}) *Node {
 	// 返回一个新的 Node 结构体实例
 	// Returns a new instance of the Node struct
-	return &Node{}
+	return &Node{value: v}
 }
 
 // Reset 方法用于重置 Node 结构体的值
