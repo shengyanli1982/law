@@ -7,10 +7,6 @@ const DefaultBufferSize = 2048
 // Config 是配置结构体，包含了日志器、缓冲区大小和回调函数
 // Config is a structure that contains a logger, buffer size, and a callback function
 type Config struct {
-	// logger 是日志器，用于记录日志
-	// logger is a logger for logging
-	logger Logger
-
 	// buffSize 是缓冲区的大小
 	// buffSize is the size of the buffer
 	buffSize int
@@ -33,10 +29,6 @@ func NewConfig() *Config {
 		// 创建一个空的回调函数
 		// Create an empty callback function
 		callback: newEmptyCallback(),
-
-		// 创建一个新的日志器
-		// Create a new logger
-		logger: newLogger(),
 	}
 }
 
@@ -72,22 +64,9 @@ func (c *Config) WithCallback(cb Callback) *Config {
 	return c
 }
 
-// WithLogger 是 Config 结构体的一个方法，用于设置日志器
-// WithLogger is a method of the Config structure, used to set the logger
-func (c *Config) WithLogger(logger Logger) *Config {
-	// 设置日志器
-	// Set the logger
-	c.logger = logger
-
-	// 返回配置实例，以便进行链式调用
-	// Return the configuration instance for chaining
-	return c
-}
-
 // isConfigValid 是一个函数，用于检查配置是否有效。如果配置无效，它将使用默认值进行修复。
 // isConfigValid is a function to check if the configuration is valid. If the configuration is invalid, it will fix it with default values.
 func isConfigValid(conf *Config) *Config {
-
 	// 如果配置不为空
 	// If the configuration is not null
 	if conf != nil {
@@ -95,26 +74,16 @@ func isConfigValid(conf *Config) *Config {
 		// 如果缓冲区大小小于或等于0，将其设置为默认缓冲区大小
 		// If the buffer size is less than or equal to 0, set it to the default buffer size
 		if conf.buffSize <= 0 {
-
 			conf.buffSize = DefaultBufferSize
 		}
 
 		// 如果回调函数为空，创建一个新的空回调函数
 		// If the callback function is null, create a new empty callback function
 		if conf.callback == nil {
-
 			conf.callback = newEmptyCallback()
 		}
 
-		// 如果日志器为空，创建一个新的日志器
-		// If the logger is null, create a new logger
-		if conf.logger == nil {
-
-			conf.logger = newLogger()
-		}
-
 	} else {
-
 		// 如果配置为空，使用默认配置
 		// If the configuration is null, use the default configuration
 		conf = DefaultConfig()

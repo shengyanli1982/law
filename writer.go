@@ -11,7 +11,6 @@ import (
 	"time"
 
 	lf "github.com/shengyanli1982/law/internal/lockfree"
-	"github.com/shengyanli1982/law/internal/util"
 )
 
 // 定义默认的心跳间隔为 500 毫秒
@@ -80,10 +79,6 @@ type WriteAsyncer struct {
 	// state 用于存储写异步器的状态
 	// state is used to store the status of the write asyncer
 	state Status
-
-	// elementpool 用于存储元素的池
-	// elementpool is used to store the pool of elements
-	elementpool *ElementPool
 }
 
 // NewWriteAsyncer 函数用于创建一个新的 WriteAsyncer 实例
@@ -121,10 +116,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		// 初始化状态
 		// Initialize the status
 		state: Status{},
-
-		// 创建一个新的元素池
-		// Create a new element pool
-		elementpool: NewElementPool(),
 
 		// 初始化计时器
 		// Initialize the timer
@@ -206,20 +197,21 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	}
 
 	// 从元素池中获取一个元素
-	// Get an element from the element pool
-	element := wa.elementpool.Get()
+	// Get an elem from the elem pool
+	// elem := wa.elementpool.Get()
+	elem := NewElement()
 
 	// 将数据设置到元素的 buffer 字段
 	// Set the data to the buffer field of the element
-	element.buffer = p
+	elem.buffer = p
 
 	// 将当前的时间设置到元素的 updateAt 字段
 	// Set the current time to the updateAt field of the element
-	element.updateAt = wa.timer.Load()
+	elem.updateAt = wa.timer.Load()
 
 	// 将元素添加到队列
 	// Add the element to the queue
-	wa.queue.Push(element)
+	wa.queue.Push(elem)
 
 	// 调用回调函数 OnPushQueue
 	// Call the callback function OnPushQueue
@@ -233,10 +225,6 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 // flushBufferedWriter 方法用于将数据写入到 bufferedWriter
 // The flushBufferedWriter method is used to write data to the bufferedWriter
 func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
-	// 调用回调函数 OnWrite
-	// Call the callback function OnWrite
-	wa.config.callback.OnWrite(p)
-
 	// 如果数据的长度大于 bufferedWriter 的可用空间，并且 bufferedWriter 中已经有缓冲的数据
 	// If the length of the data is greater than the available space of the bufferedWriter, and there is already buffered data in the bufferedWriter
 	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
@@ -278,6 +266,8 @@ func (wa *WriteAsyncer) poller() {
 		// 如果获取到的元素不为 nil，那么执行相应的函数
 		// If the obtained element is not nil, then execute the corresponding function
 		if elem != nil {
+			// 使用类型断言将 elem 转换为 *Element 类型，然后传递给 executeFunc 函数执行
+			// Use type assertion to convert elem to *Element type, then pass it to executeFunc function for execution
 			wa.executeFunc(elem.(*Element))
 		} else {
 			// 如果获取到的元素为 nil，那么等待一段时间或者接收到 ctx.Done 的信号
@@ -305,9 +295,9 @@ func (wa *WriteAsyncer) poller() {
 					// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
 					// Flush the bufferedWriter, writing all buffered data to the writer
 					if err := wa.bufferedWriter.Flush(); err != nil {
-						// 如果刷新失败，那么记录错误日志
-						// If the flush fails, then log the error
-						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
+						// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
+						// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
+						wa.config.callback.OnWriteFailed(nil, err)
 					}
 
 					// 更新上次执行时间为当前时间
@@ -368,18 +358,18 @@ func (wa *WriteAsyncer) executeFunc(elem *Element) {
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
 	if _, err := wa.flushBufferedWriter(elem.buffer); err != nil {
-		// 如果写入失败，那么记录错误日志
-		// If the write fails, then log the error
-		wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), util.BytesToString(elem.buffer))
+		// 如果写入失败，调用回调函数 OnWriteFailure
+		// If the write fails, call the callback function OnWriteFailure
+		wa.config.callback.OnWriteFailed(elem.buffer, err)
+	} else {
+		// 如果写入成功，调用回调函数 OnWriteSuccess
+		// If the write is successful, call the callback function OnWriteSuccess
+		wa.config.callback.OnWriteSuccess(elem.buffer)
 	}
 
 	// 重置元素的状态
 	// Reset the state of the element
 	elem.Reset()
-
-	// 将元素放回到元素池
-	// Put the element back into the element pool
-	wa.elementpool.Put(elem)
 }
 
 // cleanQueueToWriter 方法用于将队列中的所有数据写入到 writer
