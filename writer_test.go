@@ -11,7 +11,8 @@ import (
 )
 
 type callback struct {
-	a0, a1, a2 []string
+	a0, a1, a2, a3 []string
+	e3             []error
 }
 
 func (c *callback) OnPushQueue(b []byte) {
@@ -22,8 +23,13 @@ func (c *callback) OnPopQueue(b []byte, _ int64) {
 	c.a1 = append(c.a1, utils.BytesToString(b))
 }
 
-func (c *callback) OnWrite(b []byte) {
+func (c *callback) OnWriteSuccess(b []byte) {
 	c.a2 = append(c.a2, utils.BytesToString(b))
+}
+
+func (c *callback) OnWriteFailure(b []byte, err error) {
+	c.a3 = append(c.a3, utils.BytesToString(b))
+	c.e3 = append(c.e3, err)
 }
 
 func TestWriteAsyncer_Standard(t *testing.T) {
