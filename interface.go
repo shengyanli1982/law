@@ -1,7 +1,5 @@
 package law
 
-import "log"
-
 // Writer 是一个接口，定义了写操作的行为。
 // Writer is an interface that defines the behavior of write operations.
 type Writer interface {
@@ -25,9 +23,13 @@ type Callback interface {
 	// The OnPopQueue method is called when data is popped from the queue.
 	OnPopQueue([]byte, int64)
 
-	// OnWrite 方法在数据被写入时调用。
-	// The OnWrite method is called when data is written.
-	OnWrite([]byte)
+	// OnWriteSuccess 方法在数据成功写入时调用。
+	// The OnWriteSuccess method is called when data is successfully written.
+	OnWriteSuccess([]byte)
+
+	// OnWriteFailure 方法在数据写入失败时调用，会传入失败的错误信息。
+	// The OnWriteFailure method is called when data writing fails, and the failure error information will be passed in.
+	OnWriteFailure([]byte, error)
 }
 
 // emptyCallback 是一个实现了 Callback 接口的结构体，但所有方法的实现都为空。
@@ -42,9 +44,13 @@ func (c *emptyCallback) OnPushQueue([]byte) {}
 // OnPopQueue is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
 func (c *emptyCallback) OnPopQueue([]byte, int64) {}
 
-// OnWrite 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
-// OnWrite is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
-func (c *emptyCallback) OnWrite([]byte) {}
+// OnWriteSuccess 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
+// OnWriteSuccess is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
+func (c *emptyCallback) OnWriteSuccess([]byte) {}
+
+// OnWriteFailure 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
+// OnWriteFailure is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
+func (c *emptyCallback) OnWriteFailure([]byte, error) {}
 
 // newEmptyCallback 是一个构造函数，用于创建一个新的 emptyCallback 实例。
 // newEmptyCallback is a constructor function for creating a new emptyCallback instance.
@@ -64,32 +70,4 @@ type QueueInterface interface {
 	// Pop 方法用于从队列中取出一个值。
 	// The Pop method is used to take a value out of the queue.
 	Pop() interface{}
-}
-
-// Logger 是一个接口，定义了日志记录的基本操作：Errorf。
-// Logger is an interface that defines the basic operations of logging: Errorf.
-type Logger interface {
-	// Errorf 方法用于记录错误信息。
-	// The Errorf method is used to log error information.
-	Errorf(format string, args ...interface{})
-}
-
-// logger 是 Logger 接口的一个实现。
-// logger is an implementation of the Logger interface.
-type logger struct{}
-
-// Errorf 是 logger 结构体实现 Logger 接口的方法，用于记录错误信息。
-// Errorf is a method of the logger struct that implements the Logger interface, used to log error information.
-func (l *logger) Errorf(format string, args ...interface{}) {
-	// 使用 log 包的 Printf 函数来记录错误信息。
-	// Use the Printf function of the log package to log error information.
-	log.Printf(format, args...)
-}
-
-// newLogger 是一个构造函数，用于创建一个新的 logger 实例。
-// newLogger is a constructor function for creating a new logger instance.
-func newLogger() Logger {
-	// 返回一个新的 logger 实例。
-	// Return a new logger instance.
-	return &logger{}
 }

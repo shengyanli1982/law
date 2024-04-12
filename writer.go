@@ -11,7 +11,6 @@ import (
 	"time"
 
 	lf "github.com/shengyanli1982/law/internal/lockfree"
-	"github.com/shengyanli1982/law/internal/utils"
 )
 
 // 定义默认的心跳间隔为 500 毫秒
@@ -226,10 +225,6 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 // flushBufferedWriter 方法用于将数据写入到 bufferedWriter
 // The flushBufferedWriter method is used to write data to the bufferedWriter
 func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
-	// 调用回调函数 OnWrite
-	// Call the callback function OnWrite
-	wa.config.callback.OnWrite(p)
-
 	// 如果数据的长度大于 bufferedWriter 的可用空间，并且 bufferedWriter 中已经有缓冲的数据
 	// If the length of the data is greater than the available space of the bufferedWriter, and there is already buffered data in the bufferedWriter
 	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
@@ -300,9 +295,9 @@ func (wa *WriteAsyncer) poller() {
 					// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
 					// Flush the bufferedWriter, writing all buffered data to the writer
 					if err := wa.bufferedWriter.Flush(); err != nil {
-						// 如果刷新失败，那么记录错误日志
-						// If the flush fails, then log the error
-						wa.config.logger.Errorf("buffered writer flush error, error: %s", err.Error())
+						// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
+						// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
+						wa.config.callback.OnWriteFailure(nil, err)
 					}
 
 					// 更新上次执行时间为当前时间
@@ -363,9 +358,13 @@ func (wa *WriteAsyncer) executeFunc(elem *Element) {
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
 	if _, err := wa.flushBufferedWriter(elem.buffer); err != nil {
-		// 如果写入失败，那么记录错误日志
-		// If the write fails, then log the error
-		wa.config.logger.Errorf("data write error, error: %s, message: %s", err.Error(), utils.BytesToString(elem.buffer))
+		// 如果写入失败，调用回调函数 OnWriteFailure
+		// If the write fails, call the callback function OnWriteFailure
+		wa.config.callback.OnWriteFailure(elem.buffer, err)
+	} else {
+		// 如果写入成功，调用回调函数 OnWriteSuccess
+		// If the write is successful, call the callback function OnWriteSuccess
+		wa.config.callback.OnWriteSuccess(elem.buffer)
 	}
 
 	// 重置元素的状态
