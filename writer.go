@@ -144,7 +144,11 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 	// 增加 wg 的计数
 	// Increase the count of wg
-	wa.wg.Add(2)
+	wa.wg.Add(3)
+
+	// 启动 saver 协程
+	// Start the saver goroutine
+	go wa.saver()
 
 	// 启动 poller 协程
 	// Start the poller goroutine
@@ -242,6 +246,59 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 	return wa.bufferedWriter.Write(p)
 }
 
+// saver 方法用于定时检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间，如果有则刷新 bufferedWriter
+// The saver method is used to periodically check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout, if so, then flush the bufferedWriter
+func (wa *WriteAsyncer) saver() {
+	// 创建一个新的定时器，用于定时检查队列
+	// Create a new timer for periodically checking the queue
+	heartbeat := time.NewTicker(defaultHeartbeatInterval)
+
+	// 使用 defer 语句确保在函数结束时停止定时器并完成减少 WaitGroup 的计数
+	// Use a defer statement to ensure that the timer is stopped and the count of WaitGroup is reduced when the function ends
+	defer func() {
+		heartbeat.Stop()
+		wa.wg.Done()
+	}()
+
+	for {
+		// 如果获取到的元素为 nil，那么等待一段时间或者接收到 ctx.Done 的信号
+		// If the obtained element is nil, then wait for a period of time or receive the ctx.Done signal
+		select {
+		// 如果接收到 ctx.Done 的信号，那么结束循环
+		// If the ctx.Done signal is received, then end the loop
+		case <-wa.ctx.Done():
+			return
+
+		// 如果等待了一段时间，那么检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间
+		// If a period of time has passed, then check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout
+		case <-heartbeat.C:
+			// 获取当前时间
+			// Get the current time
+			now := wa.timer.Load()
+
+			// 计算当前时间与上次执行时间的差值
+			// Calculate the difference between the current time and the last execution time
+			diff := now - wa.state.executeAt.Load()
+
+			// 如果 bufferedWriter 中有缓冲的数据，并且已经超过了空闲超时时间
+			// If there is buffered data in the bufferedWriter and it has exceeded the idle timeout
+			if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
+				// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
+				// Flush the bufferedWriter, writing all buffered data to the writer
+				if err := wa.bufferedWriter.Flush(); err != nil {
+					// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
+					// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
+					wa.config.callback.OnWriteFailed(nil, err)
+				}
+
+				// 更新上次执行时间为当前时间
+				// Update the last execution time to the current time
+				wa.state.executeAt.Store(now)
+			}
+		}
+	}
+}
+
 // poller 方法用于从队列中获取元素并执行相应的函数
 // The poller method is used to get elements from the queue and execute the corresponding functions
 func (wa *WriteAsyncer) poller() {
@@ -259,51 +316,23 @@ func (wa *WriteAsyncer) poller() {
 	// 使用无限循环来不断从队列中获取元素
 	// Use an infinite loop to continuously get elements from the queue
 	for {
-		// 从队列中获取一个元素
-		// Get an element from the queue
-		elem := wa.queue.Pop()
+		select {
+		// 如果接收到 ctx.Done 的信号，那么结束循环
+		// If the ctx.Done signal is received, then end the loop
+		case <-wa.ctx.Done():
+			return
 
-		// 如果获取到的元素不为 nil，那么执行相应的函数
-		// If the obtained element is not nil, then execute the corresponding function
-		if elem != nil {
-			// 使用类型断言将 elem 转换为 *Element 类型，然后传递给 executeFunc 函数执行
-			// Use type assertion to convert elem to *Element type, then pass it to executeFunc function for execution
-			wa.executeFunc(elem.(*Element))
-		} else {
-			// 如果获取到的元素为 nil，那么等待一段时间或者接收到 ctx.Done 的信号
-			// If the obtained element is nil, then wait for a period of time or receive the ctx.Done signal
-			select {
-			// 如果接收到 ctx.Done 的信号，那么结束循环
-			// If the ctx.Done signal is received, then end the loop
-			case <-wa.ctx.Done():
-				return
+		// 默认情况下，尝试从队列中弹出一个元素
+		// By default, try to pop an element from the queue
+		default:
+			// 尝试从队列中弹出一个元素
+			// Try to pop an element from the queue
+			elem := wa.queue.Pop()
 
-			// 如果等待了一段时间，那么检查 bufferedWriter 中是否有缓冲的数据并且已经超过了空闲超时时间
-			// If a period of time has passed, then check whether there is buffered data in the bufferedWriter and it has exceeded the idle timeout
-			case <-heartbeat.C:
-				// 获取当前时间
-				// Get the current time
-				now := wa.timer.Load()
-
-				// 计算当前时间与上次执行时间的差值
-				// Calculate the difference between the current time and the last execution time
-				diff := now - wa.state.executeAt.Load()
-
-				// 如果 bufferedWriter 中有缓冲的数据，并且已经超过了空闲超时时间
-				// If there is buffered data in the bufferedWriter and it has exceeded the idle timeout
-				if wa.bufferedWriter.Buffered() > 0 && diff >= defaultIdleTimeout.Milliseconds() {
-					// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
-					// Flush the bufferedWriter, writing all buffered data to the writer
-					if err := wa.bufferedWriter.Flush(); err != nil {
-						// 如果在刷新 bufferedWriter 时发生错误，调用 OnWriteFailure 回调函数
-						// If an error occurs while flushing the bufferedWriter, call the OnWriteFailure callback function
-						wa.config.callback.OnWriteFailed(nil, err)
-					}
-
-					// 更新上次执行时间为当前时间
-					// Update the last execution time to the current time
-					wa.state.executeAt.Store(now)
-				}
+			// 如果元素不为空，执行 executeFunc 函数
+			// If the element is not null, execute the executeFunc function
+			if elem != nil {
+				wa.executeFunc(elem.(*Element))
 			}
 		}
 	}
