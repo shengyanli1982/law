@@ -1,5 +1,7 @@
 package law
 
+import lf "github.com/shengyanli1982/law/internal/lockfree"
+
 // DefaultBufferSize 是默认的缓冲区大小
 // DefaultBufferSize is the default buffer size
 const DefaultBufferSize = 2048
@@ -14,6 +16,10 @@ type Config struct {
 	// callback 是回调函数，用于处理特定事件
 	// callback is a callback function for handling specific events
 	callback Callback
+
+	// queue 是一个队列，它用于存储即将处理的事件。
+	// queue is a queue that is used to store events that are about to be processed.
+	queue Queue
 }
 
 // NewConfig 是一个构造函数，用于创建一个新的 Config 实例
@@ -29,6 +35,10 @@ func NewConfig() *Config {
 		// 创建一个空的回调函数
 		// Create an empty callback function
 		callback: newEmptyCallback(),
+
+		// 创建一个无锁队列
+		// Create an unlocked queue
+		queue: lf.NewLockFreeQueue(),
 	}
 }
 
@@ -64,6 +74,18 @@ func (c *Config) WithCallback(cb Callback) *Config {
 	return c
 }
 
+// WithQueue 是 Config 结构体的一个方法，用于设置队列
+// WithQueue is a method of the Config structure, used to set the queue
+func (c *Config) WithQueue(q Queue) *Config {
+	// 设置队列
+	// Set the queue
+	c.queue = q
+
+	// 返回配置实例，以便进行链式调用
+	// Return the configuration instance for chaining
+	return c
+}
+
 // isConfigValid 是一个函数，用于检查配置是否有效。如果配置无效，它将使用默认值进行修复。
 // isConfigValid is a function to check if the configuration is valid. If the configuration is invalid, it will fix it with default values.
 func isConfigValid(conf *Config) *Config {
@@ -81,6 +103,12 @@ func isConfigValid(conf *Config) *Config {
 		// If the callback function is null, create a new empty callback function
 		if conf.callback == nil {
 			conf.callback = newEmptyCallback()
+		}
+
+		// 如果队列为空，创建一个新的无锁队列
+		// If the queue is null, create a new unlocked queue
+		if conf.queue == nil {
+			conf.queue = lf.NewLockFreeQueue()
 		}
 
 	} else {
