@@ -60,9 +60,9 @@ func newEmptyCallback() Callback {
 	return &emptyCallback{}
 }
 
-// QueueInterface 是一个接口，定义了队列的基本操作：Push 和 Pop。
-// QueueInterface is an interface that defines the basic operations of a queue: Push and Pop.
-type QueueInterface interface {
+// Queue 是一个接口，定义了队列的基本操作：Push 和 Pop。
+// Queue is an interface that defines the basic operations of a queue: Push and Pop.
+type Queue interface {
 	// Push 方法用于将值添加到队列中。
 	// The Push method is used to add a value to the queue.
 	Push(value interface{})

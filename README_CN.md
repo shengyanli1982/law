@@ -86,6 +86,7 @@ func main() {
 `LAW` 支持回调函数。在创建写入器时，您可以指定一个回调函数，当写入器执行特定操作时，回调函数将被调用。
 
 > [!TIP]
+>
 > 回调函数是可选的。如果您不需要回调函数，可以在创建写入器时传递 `nil`，回调函数将不会被调用。
 >
 > 您可以使用 `WithCallback` 方法来设置回调函数。
@@ -200,6 +201,32 @@ func main() {
 	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
 	// Wait for 1 second so we can see the output of WriteAsyncer
 	time.Sleep(time.Second)
+}
+```
+
+## 3. 自定义队列
+
+`LAW` 提供了自定义存储日志数据的队列的灵活性。您可以选择实现自己的队列，并在初始化时将其传递给写入器。
+
+> [!TIP]
+>
+> 默认情况下，`LAW` 使用一个 `lockfree` 队列，将日志数据存储在一系列字节缓冲区中。
+>
+> 您可以使用 `WithQueue` 方法来设置自定义队列。
+
+**队列接口**
+
+```go
+// Queue 是一个接口，定义了队列的基本操作：Push 和 Pop。
+// Queue is an interface that defines the basic operations of a queue: Push and Pop.
+type Queue interface {
+	// Push 方法用于将值添加到队列中。
+	// The Push method is used to add a value to the queue.
+	Push(value interface{})
+
+	// Pop 方法用于从队列中取出一个值。
+	// The Pop method is used to take a value out of the queue.
+	Pop() interface{}
 }
 ```
 

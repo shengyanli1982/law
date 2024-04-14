@@ -10,7 +10,7 @@ import (
 type Element struct {
 	// buffer 是一个字节缓冲区
 	// buffer is a byte buffer
-	buffer bytes.Buffer
+	buffer *bytes.Buffer
 
 	// updateAt 是一个更新时间戳
 	// updateAt is an update timestamp
@@ -22,17 +22,23 @@ type Element struct {
 func NewElement() *Element {
 	// 返回一个新的 Element 实例
 	// Return a new Element instance
-	return &Element{}
+	return &Element{buffer: &bytes.Buffer{}, updateAt: 0}
 }
 
+// GetBuffer 是一个方法，它返回 Element 的 buffer 字段
+// GetBuffer is a method that returns the buffer field of the Element
 func (e *Element) GetBuffer() *bytes.Buffer {
-	return &e.buffer
+	return e.buffer
 }
 
+// GetUpdateAt 是一个方法，它返回 Element 的 updateAt 字段
+// GetUpdateAt is a method that returns the updateAt field of the Element
 func (e *Element) GetUpdateAt() int64 {
 	return e.updateAt
 }
 
+// SetUpdateAt 是一个方法，它设置 Element 的 updateAt 字段
+// SetUpdateAt is a method that sets the updateAt field of the Element
 func (e *Element) SetUpdateAt(updateAt int64) {
 	e.updateAt = updateAt
 }

@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	lf "github.com/shengyanli1982/law/internal/lockfree"
 	wr "github.com/shengyanli1982/law/internal/writer"
 )
 
@@ -26,18 +25,6 @@ const defaultIdleTimeout = 5 * time.Second
 // Define an error indicating that the write asyncer is closed
 var ErrorWriteAsyncerIsClosed = errors.New("write asyncer is closed")
 
-// Status 结构体用于表示写异步器的状态
-// The Status struct is used to represent the status of the write asyncer
-type Status struct {
-	// running 表示写异步器是否正在运行
-	// running indicates whether the write asyncer is running
-	running atomic.Bool
-
-	// executeAt 表示下一次执行的时间
-	// executeAt represents the time of the next execution
-	executeAt atomic.Int64
-}
-
 // WriteAsyncer 结构体用于实现写异步器
 // The WriteAsyncer struct is used to implement the write asyncer
 type WriteAsyncer struct {
@@ -47,7 +34,7 @@ type WriteAsyncer struct {
 
 	// queue 用于存储待写入的数据
 	// queue is used to store the data to be written
-	queue QueueInterface
+	queue Queue
 
 	// writer 用于写入数据
 	// writer is used to write data
@@ -79,7 +66,7 @@ type WriteAsyncer struct {
 
 	// state 用于存储写异步器的状态
 	// state is used to store the status of the write asyncer
-	state Status
+	state *wr.Status
 
 	// elementpool 用于存储元素池
 	// elementpool is used to store the element pool
@@ -108,7 +95,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		// 创建一个新的无锁队列
 		// Create a new lock-free queue
-		queue: lf.NewLockFreeQueue(),
+		queue: conf.queue,
 
 		// 设置写入器
 		// Set the writer
@@ -120,7 +107,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		// 初始化状态
 		// Initialize the status
-		state: Status{},
+		state: wr.NewStatus(),
 
 		// 初始化计时器
 		// Initialize the timer
@@ -145,11 +132,11 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 	// 设置下一次执行的时间为当前时间
 	// Set the time of the next execution to the current time
-	wa.state.executeAt.Store(time.Now().UnixMilli())
+	wa.state.SetExecuteAt(time.Now().UnixMilli())
 
 	// 设置 running 为 true，表示 WriteAsyncer 正在运行
 	// Set running to true, indicating that WriteAsyncer is running
-	wa.state.running.Store(true)
+	wa.state.SetRunning(true)
 
 	// 增加 wg 的计数
 	// Increase the count of wg
@@ -176,7 +163,7 @@ func (wa *WriteAsyncer) Stop() {
 	wa.once.Do(func() {
 		// 将 running 状态设置为 false，表示 WriteAsyncer 已经停止
 		// Set the running status to false, indicating that the WriteAsyncer has stopped
-		wa.state.running.Store(false)
+		wa.state.SetRunning(false)
 
 		// 调用 cancel 函数取消 WriteAsyncer 的所有操作
 		// Call the cancel function to cancel all operations of the WriteAsyncer
@@ -201,7 +188,7 @@ func (wa *WriteAsyncer) Stop() {
 func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	// 如果 WriteAsyncer 已经停止，那么返回错误
 	// If the WriteAsyncer has stopped, then return an error
-	if !wa.state.running.Load() {
+	if !wa.state.IsRunning() {
 		return 0, ErrorWriteAsyncerIsClosed
 	}
 
@@ -293,7 +280,7 @@ func (wa *WriteAsyncer) poller() {
 
 				// 计算当前时间与上次执行时间的差值
 				// Calculate the difference between the current time and the last execution time
-				diff := now - wa.state.executeAt.Load()
+				diff := now - wa.state.GetExecuteAt()
 
 				// 如果 bufferedWriter 中有缓冲的数据，并且已经超过了空闲超时时间
 				// If there is buffered data in the bufferedWriter and it has exceeded the idle timeout
@@ -308,7 +295,7 @@ func (wa *WriteAsyncer) poller() {
 
 					// 更新上次执行时间为当前时间
 					// Update the last execution time to the current time
-					wa.state.executeAt.Store(now)
+					wa.state.SetExecuteAt(now)
 				}
 			}
 		}
@@ -355,7 +342,7 @@ func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
 
 	// 更新上次执行时间为当前时间
 	// Update the last execution time to the current time
-	wa.state.executeAt.Store(now)
+	wa.state.SetExecuteAt(now)
 
 	// content 是一个变量，它获取 elem 的缓冲区的字节
 	// content is a variable that gets the bytes of the buffer of elem

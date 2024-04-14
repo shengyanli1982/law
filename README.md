@@ -87,6 +87,7 @@ func main() {
 `LAW` supports action callback functions. You can specify a callback function when creating a writer, and this function will be called when the writer performs certain actions.
 
 > [!TIP]
+>
 > Callback functions are optional. If you don't need them, you can pass `nil` when creating a writer, and the callback function will not be called.
 >
 > You can use the `WithCallback` method to set the callback function.
@@ -201,6 +202,32 @@ func main() {
 	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
 	// Wait for 1 second so we can see the output of WriteAsyncer
 	time.Sleep(time.Second)
+}
+```
+
+## 3. Custom Queue
+
+`LAW` provides the flexibility to customize the queue used for storing log data. You have the option to implement your own queue and pass it to the writer during initialization.
+
+> [!TIP]
+>
+> By default, `LAW` uses a `lockfree` queue that stores log data in a chain of byte buffers.
+>
+> You can use the `WithQueue` method to set a custom queue.
+
+**Queue Interface**
+
+```go
+// Queue 是一个接口，定义了队列的基本操作：Push 和 Pop。
+// Queue is an interface that defines the basic operations of a queue: Push and Pop.
+type Queue interface {
+	// Push 方法用于将值添加到队列中。
+	// The Push method is used to add a value to the queue.
+	Push(value interface{})
+
+	// Pop 方法用于从队列中取出一个值。
+	// The Pop method is used to take a value out of the queue.
+	Pop() interface{}
 }
 ```
 
