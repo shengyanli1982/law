@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	lf "github.com/shengyanli1982/law/internal/lockfree"
 	wr "github.com/shengyanli1982/law/internal/writer"
 )
 
@@ -96,7 +95,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		// 创建一个新的无锁队列
 		// Create a new lock-free queue
-		queue: lf.NewLockFreeQueue(),
+		queue: conf.queue,
 
 		// 设置写入器
 		// Set the writer
