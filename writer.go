@@ -35,7 +35,7 @@ type WriteAsyncer struct {
 
 	// queue 用于存储待写入的数据
 	// queue is used to store the data to be written
-	queue QueueInterface
+	queue Queue
 
 	// writer 用于写入数据
 	// writer is used to write data
