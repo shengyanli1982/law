@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLockFreeQueue(t *testing.T) {
+func TestLockFreeQueue_Standard(t *testing.T) {
 	q := NewLockFreeQueue()
 
 	// Test enqueueing elements into the queue
@@ -25,7 +25,26 @@ func TestLockFreeQueue(t *testing.T) {
 	assert.Equal(t, uint64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
 }
 
-func TestLockFreeQueueEmpty(t *testing.T) {
+func TestLockFreeQueue_Length(t *testing.T) {
+	q := NewLockFreeQueue()
+
+	// Test the length of an empty queue
+	assert.Equal(t, uint64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
+
+	// Test the length of a non-empty queue
+	for i := 0; i < 100; i++ {
+		q.Push(i)
+		assert.Equal(t, uint64(i+1), q.Length(), "Incorrect queue length. Expected %d, got %d", i+1, q.Length())
+	}
+
+	// Test the length of a queue after popping elements
+	for i := 0; i < 100; i++ {
+		q.Pop()
+		assert.Equal(t, uint64(100-i-1), q.Length(), "Incorrect queue length. Expected %d, got %d", 100-i-1, q.Length())
+	}
+}
+
+func TestLockFreeQueue_EmptyPop(t *testing.T) {
 	q := NewLockFreeQueue()
 
 	// Test popping elements from an empty queue
@@ -35,7 +54,7 @@ func TestLockFreeQueueEmpty(t *testing.T) {
 	}
 }
 
-func TestLockFreeQueueParallel(t *testing.T) {
+func TestLockFreeQueue_Parallel(t *testing.T) {
 	nums := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	q := NewLockFreeQueue()
 
@@ -65,7 +84,7 @@ func TestLockFreeQueueParallel(t *testing.T) {
 	wg.Wait()
 }
 
-func TestLockFreeQueueParallelAtSametime(t *testing.T) {
+func TestLockFreeQueue_ParallelAtSametime(t *testing.T) {
 	nums := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	q := NewLockFreeQueue()
 
