@@ -9,10 +9,6 @@ import (
 // Define an empty struct, with no fields
 var emptyValue = struct{}{}
 
-// 创建一个新的节点，节点的值为 emptyValue
-// Create a new node, the value of the node is emptyValue
-var emptyNode = NewNode(emptyValue)
-
 // LockFreeQueue 是一个无锁队列结构体
 // LockFreeQueue is a lock-free queue struct
 type LockFreeQueue struct {
@@ -32,6 +28,10 @@ type LockFreeQueue struct {
 // NewLockFreeQueue 函数用于创建一个新的 LockFreeQueue 结构体实例
 // The NewLockFreeQueue function is used to create a new instance of the LockFreeQueue struct
 func NewLockFreeQueue() *LockFreeQueue {
+	// 创建一个新的 Node 结构体实例
+	// Create a new Node struct instance
+	emptyNode := NewNode(emptyValue)
+
 	// 返回一个新的 LockFreeQueue 结构体实例，其中 head 和 tail 都指向 dummy 节点
 	// Returns a new instance of the LockFreeQueue struct, where both head and tail point to the dummy node
 	return &LockFreeQueue{
@@ -173,6 +173,10 @@ func (q *LockFreeQueue) Length() uint64 {
 // Reset 方法用于重置 LockFreeQueue 队列
 // The Reset method is used to reset the LockFreeQueue queue
 func (q *LockFreeQueue) Reset() {
+	// 创建一个新的 Node 结构体实例
+	// Create a new Node struct instance
+	emptyNode := NewNode(emptyValue)
+
 	// 将队列的头节点和尾节点都设置为新创建的节点
 	// Set both the head node and the tail node of the queue to the newly created node
 	q.head = unsafe.Pointer(emptyNode)
