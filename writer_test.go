@@ -48,6 +48,8 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	w.cleanQueueToWriter()
 	w.bufferedWriter.Flush()
 
+	time.Sleep(time.Millisecond * 200)
+
 	assert.Equal(t, "helloworld!!!", buff.String())
 }
 
