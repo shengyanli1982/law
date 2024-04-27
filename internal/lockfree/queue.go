@@ -5,16 +5,12 @@ import (
 	"unsafe"
 )
 
-// 定义一个空的结构体，没有任何字段
-// Define an empty struct, with no fields
-var emptyValue = struct{}{}
-
 // LockFreeQueue 是一个无锁队列结构体
 // LockFreeQueue is a lock-free queue struct
 type LockFreeQueue struct {
 	// length 是队列的长度
 	// length is the length of the queue
-	length uint64
+	length int64
 
 	// head 是指向队列头部的指针
 	// head is a pointer to the head of the queue
@@ -30,7 +26,7 @@ type LockFreeQueue struct {
 func NewLockFreeQueue() *LockFreeQueue {
 	// 创建一个新的 Node 结构体实例
 	// Create a new Node struct instance
-	emptyNode := NewNode(emptyValue)
+	emptyNode := NewNode(nil)
 
 	// 返回一个新的 LockFreeQueue 结构体实例，其中 head 和 tail 都指向 dummy 节点
 	// Returns a new instance of the LockFreeQueue struct, where both head and tail point to the dummy node
@@ -77,7 +73,7 @@ func (q *LockFreeQueue) Push(value interface{}) {
 
 					// 并增加队列的长度
 					// And increase the length of the queue
-					atomic.AddUint64(&q.length, 1)
+					atomic.AddInt64(&q.length, 1)
 
 					// 然后返回，结束函数
 					// Then return to end the function
@@ -135,23 +131,15 @@ func (q *LockFreeQueue) Pop() interface{} {
 				if compareAndSwapNode(&q.head, head, first) {
 					// 如果成功，那么减少队列的长度
 					// If successful, then decrease the length of the queue
-					atomic.AddUint64(&q.length, ^uint64(0))
+					atomic.AddInt64(&q.length, -1)
 
 					// 然后重置头节点
 					// Then reset the head node
 					head.Reset()
 
-					// 检查结果是否为空值
-					// Check if the result is an empty value
-					if result == emptyValue {
-						// 如果结果是空值，返回 nil
-						// If the result is an empty value, return nil
-						return nil
-					} else {
-						// 如果结果不是空值，返回结果
-						// If the result is not an empty value, return the result
-						return result
-					}
+					// 如果结果不是空值，返回结果
+					// If the result is not an empty value, return the result
+					return result
 				}
 
 				// 如果设置头节点失败，那么将结果设置为 nil
@@ -164,10 +152,10 @@ func (q *LockFreeQueue) Pop() interface{} {
 
 // Length 方法用于获取 LockFreeQueue 队列的长度
 // The Length method is used to get the length of the LockFreeQueue queue
-func (q *LockFreeQueue) Length() uint64 {
-	// 使用 atomic.LoadUint64 函数获取队列的长度
-	// Use the atomic.LoadUint64 function to get the length of the queue
-	return atomic.LoadUint64(&q.length)
+func (q *LockFreeQueue) Length() int64 {
+	// 使用 atomic.LoadInt64 函数获取队列的长度
+	// Use the atomic.LoadInt64 function to get the length of the queue
+	return atomic.LoadInt64(&q.length)
 }
 
 // Reset 方法用于重置 LockFreeQueue 队列
@@ -175,14 +163,14 @@ func (q *LockFreeQueue) Length() uint64 {
 func (q *LockFreeQueue) Reset() {
 	// 创建一个新的 Node 结构体实例
 	// Create a new Node struct instance
-	emptyNode := NewNode(emptyValue)
+	emptyNode := NewNode(nil)
 
 	// 将队列的头节点和尾节点都设置为新创建的节点
 	// Set both the head node and the tail node of the queue to the newly created node
 	q.head = unsafe.Pointer(emptyNode)
 	q.tail = unsafe.Pointer(emptyNode)
 
-	// 使用 atomic.StoreUint64 函数将队列的长度设置为 0
-	// Use the atomic.StoreUint64 function to set the length of the queue to 0
-	atomic.StoreUint64(&q.length, 0)
+	// 使用 atomic.StoreInt64 函数将队列的长度设置为 0
+	// Use the atomic.StoreInt64 function to set the length of the queue to 0
+	atomic.StoreInt64(&q.length, 0)
 }
