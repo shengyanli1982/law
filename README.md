@@ -109,24 +109,6 @@ import (
 // callback is a struct that implements the law.Callback interface
 type callback struct{}
 
-// OnPushQueue 是当数据被推入队列时的回调函数
-// OnPushQueue is the callback function when data is pushed into the queue
-func (c *callback) OnPushQueue(b []byte) {
-	fmt.Printf("push queue msg: %s\n", string(b)) // 输出推入队列的消息
-}
-
-// OnPopQueue 是当数据从队列中弹出时的回调函数
-// OnPopQueue is the callback function when data is popped from the queue
-func (c *callback) OnPopQueue(b []byte, lantcy int64) {
-	fmt.Printf("pop queue msg: %s, lantcy: %d\n", string(b), lantcy) // 输出弹出队列的消息和延迟
-}
-
-// OnWriteSuccess 是当数据写入成功时的回调函数
-// OnWriteSuccess is the callback function when data writing succeeds
-func (c *callback) OnWriteSuccess(b []byte) {
-	fmt.Printf("write success msg: %s\n", string(b)) // 输出写入成功的消息
-}
-
 // OnWriteFailed 是当数据写入失败时的回调函数
 // OnWriteFailed is the callback function when data writing fails
 func (c *callback) OnWriteFailed(b []byte, err error) {

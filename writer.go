@@ -2,6 +2,7 @@ package law
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -190,45 +191,17 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 
 	// 将数据设置到元素的 buffer 字段
 	// Set the data to the buffer field of the element
-	if n, err = elem.GetBuffer().Write(p); err != nil {
+	if n, err = elem.Write(p); err != nil {
 		return
 	}
-
-	// 将当前的时间设置到元素的 updateAt 字段
-	// Set the current time to the updateAt field of the element
-	elem.SetUpdateAt(wa.timer.Load())
 
 	// 将元素添加到队列
 	// Add the element to the queue
 	wa.config.queue.Push(elem)
 
-	// 调用回调函数 OnPushQueue
-	// Call the callback function OnPushQueue
-	wa.config.callback.OnPushQueue(p)
-
 	// 返回数据的长度和 nil 错误
 	// Return the length of the data and a nil error
 	return len(p), nil
-}
-
-// flushBufferedWriter 方法用于将数据写入到 bufferedWriter
-// The flushBufferedWriter method is used to write data to the bufferedWriter
-func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
-	// 如果数据的长度大于 bufferedWriter 的可用空间，并且 bufferedWriter 中已经有缓冲的数据
-	// If the length of the data is greater than the available space of the bufferedWriter, and there is already buffered data in the bufferedWriter
-	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
-		// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
-		// Flush the bufferedWriter, writing all buffered data to the writer
-		if err := wa.bufferedWriter.Flush(); err != nil {
-			// 如果刷新失败，那么直接将数据写入到 writer，并返回写入的长度和错误
-			// If the flush fails, then write the data directly to the writer and return the length of the write and the error
-			return wa.writer.Write(p)
-		}
-	}
-
-	// 将数据写入到 bufferedWriter，并返回写入的长度和错误
-	// Write the data to the bufferedWriter and return the length of the write and the error
-	return wa.bufferedWriter.Write(p)
 }
 
 // poller 方法用于从队列中获取元素并执行相应的函数
@@ -255,7 +228,7 @@ func (wa *WriteAsyncer) poller() {
 		// 如果元素不为空，执行 executeFunc 函数
 		// If the element is not null, execute the executeFunc function
 		if elem != nil {
-			wa.executeFunc(elem.(*wr.Element))
+			wa.executeFunc(elem.(*bytes.Buffer))
 		} else {
 			select {
 			// 如果接收到 ctx.Done 的信号，那么结束循环
@@ -327,7 +300,7 @@ func (wa *WriteAsyncer) updateTimer() {
 
 // executeFunc 方法用于执行 WriteAsyncer 的写入操作
 // The executeFunc method is used to perform the write operation of the WriteAsyncer
-func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
+func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
 	// 获取当前的 Unix 毫秒时间
 	// Get the current Unix millisecond time
 	now := wa.timer.Load()
@@ -338,26 +311,19 @@ func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
 
 	// content 是一个变量，它获取 elem 的缓冲区的字节
 	// content is a variable that gets the bytes of the buffer of elem
-	content := elem.GetBuffer().Bytes()
-
-	// lastUpdateAt 是一个变量，它获取 elem 的更新时间
-	// lastUpdateAt is a variable that gets the update time of elem
-	lastUpdateAt := elem.GetUpdateAt()
-
-	// 调用回调函数 OnPopQueue
-	// Call the callback function OnPopQueue
-	wa.config.callback.OnPopQueue(content, now-lastUpdateAt)
+	content := elem.Bytes()
 
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
-	if _, err := wa.flushBufferedWriter(content); err != nil {
+	if _, err := wa.bufferedWriter.Write(content); err != nil {
+		// 如果写入失败，那么将 content 复制到一个新的切片中。因为 Buffer 会被重置，原有的数据会被覆盖。
+		// If the write fails, then copy content to a new slice. Because the Buffer will be reset, the original data will be overwritten.
+		dst := make([]byte, len(content))
+		copy(dst, content)
+
 		// 如果写入失败，调用回调函数 OnWriteFailure
 		// If the write fails, call the callback function OnWriteFailure
 		wa.config.callback.OnWriteFailed(content, err)
-	} else {
-		// 如果写入成功，调用回调函数 OnWriteSuccess
-		// If the write is successful, call the callback function OnWriteSuccess
-		wa.config.callback.OnWriteSuccess(content)
 	}
 
 	// 将 elem 放回到 elementpool 中
@@ -383,6 +349,6 @@ func (wa *WriteAsyncer) cleanQueueToWriter() {
 
 		// 执行写入操作
 		// Perform the write operation
-		wa.executeFunc(elem.(*wr.Element))
+		wa.executeFunc(elem.(*bytes.Buffer))
 	}
 }
