@@ -11,20 +11,8 @@ import (
 )
 
 type callback struct {
-	a0, a1, a2, a3 []string
-	e3             []error
-}
-
-func (c *callback) OnPushQueue(b []byte) {
-	c.a0 = append(c.a0, utils.BytesToString(b))
-}
-
-func (c *callback) OnPopQueue(b []byte, _ int64) {
-	c.a1 = append(c.a1, utils.BytesToString(b))
-}
-
-func (c *callback) OnWriteSuccess(b []byte) {
-	c.a2 = append(c.a2, utils.BytesToString(b))
+	a3 []string
+	e3 []error
 }
 
 func (c *callback) OnWriteFailed(b []byte, err error) {
@@ -83,9 +71,6 @@ func TestWriteAsyncer_Callback(t *testing.T) {
 
 	time.Sleep(time.Second)
 
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a0)
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a1)
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a2)
 	assert.Equal(t, []string(nil), w.config.callback.(*callback).a3)
 	assert.NoError(t, err, "Expected no error")
 }

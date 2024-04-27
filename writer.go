@@ -2,6 +2,7 @@ package law
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -190,21 +191,13 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 
 	// 将数据设置到元素的 buffer 字段
 	// Set the data to the buffer field of the element
-	if n, err = elem.GetBuffer().Write(p); err != nil {
+	if n, err = elem.Write(p); err != nil {
 		return
 	}
-
-	// 将当前的时间设置到元素的 updateAt 字段
-	// Set the current time to the updateAt field of the element
-	elem.SetUpdateAt(wa.timer.Load())
 
 	// 将元素添加到队列
 	// Add the element to the queue
 	wa.config.queue.Push(elem)
-
-	// 调用回调函数 OnPushQueue
-	// Call the callback function OnPushQueue
-	wa.config.callback.OnPushQueue(p)
 
 	// 返回数据的长度和 nil 错误
 	// Return the length of the data and a nil error
@@ -255,7 +248,7 @@ func (wa *WriteAsyncer) poller() {
 		// 如果元素不为空，执行 executeFunc 函数
 		// If the element is not null, execute the executeFunc function
 		if elem != nil {
-			wa.executeFunc(elem.(*wr.Element))
+			wa.executeFunc(elem.(*bytes.Buffer))
 		} else {
 			select {
 			// 如果接收到 ctx.Done 的信号，那么结束循环
@@ -327,7 +320,7 @@ func (wa *WriteAsyncer) updateTimer() {
 
 // executeFunc 方法用于执行 WriteAsyncer 的写入操作
 // The executeFunc method is used to perform the write operation of the WriteAsyncer
-func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
+func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
 	// 获取当前的 Unix 毫秒时间
 	// Get the current Unix millisecond time
 	now := wa.timer.Load()
@@ -338,26 +331,19 @@ func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
 
 	// content 是一个变量，它获取 elem 的缓冲区的字节
 	// content is a variable that gets the bytes of the buffer of elem
-	content := elem.GetBuffer().Bytes()
-
-	// lastUpdateAt 是一个变量，它获取 elem 的更新时间
-	// lastUpdateAt is a variable that gets the update time of elem
-	lastUpdateAt := elem.GetUpdateAt()
-
-	// 调用回调函数 OnPopQueue
-	// Call the callback function OnPopQueue
-	wa.config.callback.OnPopQueue(content, now-lastUpdateAt)
+	content := elem.Bytes()
 
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
 	if _, err := wa.flushBufferedWriter(content); err != nil {
+		// 如果写入失败，那么将 elem 的数据拷贝到一个新的字节切片中, 随后 Buffer 的 Reset 方法会将 Buffer 的内容清空
+		// If the write fails, then copy the data of elem to a new byte slice, and then the Reset method of Buffer will clear the content of Buffer
+		dst := make([]byte, len(content))
+		copy(dst, content)
+
 		// 如果写入失败，调用回调函数 OnWriteFailure
 		// If the write fails, call the callback function OnWriteFailure
-		wa.config.callback.OnWriteFailed(content, err)
-	} else {
-		// 如果写入成功，调用回调函数 OnWriteSuccess
-		// If the write is successful, call the callback function OnWriteSuccess
-		wa.config.callback.OnWriteSuccess(content)
+		wa.config.callback.OnWriteFailed(dst, err)
 	}
 
 	// 将 elem 放回到 elementpool 中
@@ -383,6 +369,6 @@ func (wa *WriteAsyncer) cleanQueueToWriter() {
 
 		// 执行写入操作
 		// Perform the write operation
-		wa.executeFunc(elem.(*wr.Element))
+		wa.executeFunc(elem.(*bytes.Buffer))
 	}
 }

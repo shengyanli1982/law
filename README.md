@@ -109,24 +109,6 @@ import (
 // callback is a struct that implements the law.Callback interface
 type callback struct{}
 
-// OnPushQueue 是当数据被推入队列时的回调函数
-// OnPushQueue is the callback function when data is pushed into the queue
-func (c *callback) OnPushQueue(b []byte) {
-	fmt.Printf("push queue msg: %s\n", string(b)) // 输出推入队列的消息
-}
-
-// OnPopQueue 是当数据从队列中弹出时的回调函数
-// OnPopQueue is the callback function when data is popped from the queue
-func (c *callback) OnPopQueue(b []byte, lantcy int64) {
-	fmt.Printf("pop queue msg: %s, lantcy: %d\n", string(b), lantcy) // 输出弹出队列的消息和延迟
-}
-
-// OnWriteSuccess 是当数据写入成功时的回调函数
-// OnWriteSuccess is the callback function when data writing succeeds
-func (c *callback) OnWriteSuccess(b []byte) {
-	fmt.Printf("write success msg: %s\n", string(b)) // 输出写入成功的消息
-}
-
 // OnWriteFailed 是当数据写入失败时的回调函数
 // OnWriteFailed is the callback function when data writing fails
 func (c *callback) OnWriteFailed(b []byte, err error) {
@@ -525,14 +507,14 @@ goos: darwin
 goarch: amd64
 pkg: github.com/shengyanli1982/law/benchmark
 cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-8           	1000000000	         0.2905 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2557 ns/op	       0 B/op	       0 allocs/op
-BenchmarkLogAsyncWriter-8            	 4515822	       229.1 ns/op	      61 B/op	       3 allocs/op
-BenchmarkLogAsyncWriterParallel-8    	 4604298	       251.1 ns/op	      61 B/op	       3 allocs/op
-BenchmarkZapSyncWriter-8             	 3294104	       352.9 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-8     	23504499	        59.52 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-8            	 2173760	       551.0 ns/op	      56 B/op	       2 allocs/op
-BenchmarkZapAsyncWriterParallel-8    	 4663755	       258.1 ns/op	      56 B/op	       2 allocs/op
+BenchmarkBlackHoleWriter-8           	1000000000	         0.2896 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.3572 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLogAsyncWriter-8            	 3107644	       341.8 ns/op	     287 B/op	       1 allocs/op
+BenchmarkLogAsyncWriterParallel-8    	 3779115	       404.1 ns/op	     845 B/op	       2 allocs/op
+BenchmarkZapSyncWriter-8             	 3370228	       351.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapSyncWriterParallel-8     	22338423	        55.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapAsyncWriter-8            	 1624651	       692.7 ns/op	     520 B/op	       1 allocs/op
+BenchmarkZapAsyncWriterParallel-8    	 2841758	       387.7 ns/op	     935 B/op	       2 allocs/op
 ```
 
 `LAW` employs a `double buffer` strategy for logging, which may slightly impact performance compared to `zapcore.AddSync(BlackHoleWriter)`. This is because `zap`, when integrated with `LAW`, utilizes zap's writer buffer indirectly. `zap` passes the data to `LAW` through a `deque` before flushing it to the `io.Writer (BlackHoleWriter)`. As a result, the performance of `LAW` is the sum of `BenchmarkZapSyncWriter` and `BenchmarkLogAsyncWriter`, equivalent to `BenchmarkZapAsyncWriter`.
