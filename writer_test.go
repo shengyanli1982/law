@@ -86,4 +86,6 @@ func TestWriteAsyncer_Callback(t *testing.T) {
 	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a0)
 	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a1)
 	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a2)
+	assert.Equal(t, []string(nil), w.config.callback.(*callback).a3)
+	assert.NoError(t, err, "Expected no error")
 }

@@ -32,10 +32,6 @@ type WriteAsyncer struct {
 	// config is used to store the configuration of the write asyncer
 	config *Config
 
-	// queue 用于存储待写入的数据
-	// queue is used to store the data to be written
-	queue Queue
-
 	// writer 用于写入数据
 	// writer is used to write data
 	writer io.Writer
@@ -92,10 +88,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		// 设置配置
 		// Set the configuration
 		config: conf,
-
-		// 创建一个新的无锁队列
-		// Create a new lock-free queue
-		queue: conf.queue,
 
 		// 设置写入器
 		// Set the writer
@@ -208,7 +200,7 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 
 	// 将元素添加到队列
 	// Add the element to the queue
-	wa.queue.Push(elem)
+	wa.config.queue.Push(elem)
 
 	// 调用回调函数 OnPushQueue
 	// Call the callback function OnPushQueue
@@ -258,7 +250,7 @@ func (wa *WriteAsyncer) poller() {
 	for {
 		// 尝试从队列中弹出一个元素
 		// Try to pop an element from the queue
-		elem := wa.queue.Pop()
+		elem := wa.config.queue.Pop()
 
 		// 如果元素不为空，执行 executeFunc 函数
 		// If the element is not null, execute the executeFunc function
@@ -367,6 +359,7 @@ func (wa *WriteAsyncer) executeFunc(elem *wr.Element) {
 		// If the write is successful, call the callback function OnWriteSuccess
 		wa.config.callback.OnWriteSuccess(content)
 	}
+
 	// 将 elem 放回到 elementpool 中
 	// Put elem back into the elementpool
 	wa.elementpool.Put(elem)
@@ -380,7 +373,7 @@ func (wa *WriteAsyncer) cleanQueueToWriter() {
 	for {
 		// 从队列中取出一个元素
 		// Take an element from the queue
-		elem := wa.queue.Pop()
+		elem := wa.config.queue.Pop()
 
 		// 如果元素为 nil，那么跳出循环
 		// If the element is nil, then break the loop
