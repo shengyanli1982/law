@@ -173,6 +173,10 @@ func (wa *WriteAsyncer) Stop() {
 		// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
 		// Flush the bufferedWriter, writing all buffered data to the writer
 		wa.bufferedWriter.Flush()
+
+		// 重置 bufferedWriter，将其设置为 io.Discard
+		// Reset the bufferedWriter, setting it to io.Discard
+		wa.bufferedWriter.Reset(io.Discard)
 	})
 }
 
@@ -318,12 +322,12 @@ func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
 	if _, err := wa.bufferedWriter.Write(content); err != nil {
 		// 如果写入失败，那么将 content 复制到一个新的切片中。因为 Buffer 会被重置，原有的数据会被覆盖。
 		// If the write fails, then copy content to a new slice. Because the Buffer will be reset, the original data will be overwritten.
-		dst := make([]byte, len(content))
-		copy(dst, content)
+		failContent := make([]byte, len(content))
+		copy(failContent, content)
 
 		// 如果写入失败，调用回调函数 OnWriteFailure
 		// If the write fails, call the callback function OnWriteFailure
-		wa.config.callback.OnWriteFailed(content, err)
+		wa.config.callback.OnWriteFailed(failContent, err)
 	}
 
 	// 将 elem 放回到 elementpool 中

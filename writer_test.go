@@ -24,6 +24,23 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	buff := bytes.NewBuffer(make([]byte, 0, 1024))
 
 	w := NewWriteAsyncer(buff, nil)
+
+	_, err := w.Write([]byte("hello"))
+	assert.Nil(t, err)
+	_, err = w.Write([]byte("world"))
+	assert.Nil(t, err)
+	_, err = w.Write([]byte("!!!"))
+	assert.Nil(t, err)
+
+	w.Stop()
+
+	assert.Equal(t, "helloworld!!!", buff.String())
+}
+
+func TestWriteAsyncer_WaitForIdleSync(t *testing.T) {
+	buff := bytes.NewBuffer(make([]byte, 0, 1024))
+
+	w := NewWriteAsyncer(buff, nil)
 	defer w.Stop()
 
 	_, err := w.Write([]byte("hello"))
@@ -33,8 +50,7 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	_, err = w.Write([]byte("!!!"))
 	assert.Nil(t, err)
 
-	w.cleanQueueToWriter()
-	w.bufferedWriter.Flush()
+	time.Sleep(time.Second * 6)
 
 	assert.Equal(t, "helloworld!!!", buff.String())
 }
@@ -53,6 +69,11 @@ func TestWriteAsyncer_EarlyShutdown(t *testing.T) {
 
 	w.Stop()
 
+	assert.Equal(t, "helloworld!!!", buff.String())
+
+	_, err = w.Write([]byte("stop"))
+
+	assert.ErrorIs(t, err, ErrorWriteAsyncerIsClosed, "Expected error")
 	assert.Equal(t, "helloworld!!!", buff.String())
 }
 
