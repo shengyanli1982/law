@@ -22,25 +22,25 @@ func TestLockFreeQueue_Standard(t *testing.T) {
 	}
 
 	// Verify the queue length
-	assert.Equal(t, uint64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
+	assert.Equal(t, int64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
 }
 
 func TestLockFreeQueue_Length(t *testing.T) {
 	q := NewLockFreeQueue()
 
 	// Test the length of an empty queue
-	assert.Equal(t, uint64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
+	assert.Equal(t, int64(0), q.Length(), "Incorrect queue length. Expected 0, got %d", q.Length())
 
 	// Test the length of a non-empty queue
 	for i := 0; i < 100; i++ {
 		q.Push(i)
-		assert.Equal(t, uint64(i+1), q.Length(), "Incorrect queue length. Expected %d, got %d", i+1, q.Length())
+		assert.Equal(t, int64(i+1), q.Length(), "Incorrect queue length. Expected %d, got %d", i+1, q.Length())
 	}
 
 	// Test the length of a queue after popping elements
 	for i := 0; i < 100; i++ {
 		q.Pop()
-		assert.Equal(t, uint64(100-i-1), q.Length(), "Incorrect queue length. Expected %d, got %d", 100-i-1, q.Length())
+		assert.Equal(t, int64(100-i-1), q.Length(), "Incorrect queue length. Expected %d, got %d", 100-i-1, q.Length())
 	}
 }
 

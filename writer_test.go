@@ -2,37 +2,53 @@ package law
 
 import (
 	"bytes"
-	"os"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/shengyanli1982/law/internal/utils"
 	"github.com/stretchr/testify/assert"
 )
 
+var largeBytes = []byte("wWqt2ZcQmVzk4KZJPmPamr3cBLNEf5dex2N2RkqhS3E7G6PWnzFEukskx5Z822mZd7")
+
 type callback struct {
-	a0, a1, a2, a3 []string
-	e3             []error
-}
-
-func (c *callback) OnPushQueue(b []byte) {
-	c.a0 = append(c.a0, utils.BytesToString(b))
-}
-
-func (c *callback) OnPopQueue(b []byte, _ int64) {
-	c.a1 = append(c.a1, utils.BytesToString(b))
-}
-
-func (c *callback) OnWriteSuccess(b []byte) {
-	c.a2 = append(c.a2, utils.BytesToString(b))
+	t *testing.T
 }
 
 func (c *callback) OnWriteFailed(b []byte, err error) {
-	c.a3 = append(c.a3, utils.BytesToString(b))
-	c.e3 = append(c.e3, err)
+	fmt.Printf("## callback.OnWriteFailed(%s, %v)\n", b, err)
+	assert.Equal(c.t, b, largeBytes, "Expected bytes")
+	assert.ErrorIs(c.t, err, errorWriteFailed, "Expected error")
+}
+
+var errorWriteFailed = errors.New("write context failed")
+
+type faultyWriter struct{}
+
+func (fw *faultyWriter) Write(p []byte) (n int, err error) {
+	fmt.Printf("!! faultyWriter.Write(%s)\n", p)
+	return 0, errorWriteFailed
 }
 
 func TestWriteAsyncer_Standard(t *testing.T) {
+	buff := bytes.NewBuffer(make([]byte, 0, 1024))
+
+	w := NewWriteAsyncer(buff, nil)
+
+	_, err := w.Write([]byte("hello"))
+	assert.Nil(t, err)
+	_, err = w.Write([]byte("world"))
+	assert.Nil(t, err)
+	_, err = w.Write([]byte("!!!"))
+	assert.Nil(t, err)
+
+	w.Stop()
+
+	assert.Equal(t, "helloworld!!!", buff.String())
+}
+
+func TestWriteAsyncer_WaitForIdleSync(t *testing.T) {
 	buff := bytes.NewBuffer(make([]byte, 0, 1024))
 
 	w := NewWriteAsyncer(buff, nil)
@@ -45,8 +61,7 @@ func TestWriteAsyncer_Standard(t *testing.T) {
 	_, err = w.Write([]byte("!!!"))
 	assert.Nil(t, err)
 
-	w.cleanQueueToWriter()
-	w.bufferedWriter.Flush()
+	time.Sleep(time.Second * 6)
 
 	assert.Equal(t, "helloworld!!!", buff.String())
 }
@@ -66,24 +81,23 @@ func TestWriteAsyncer_EarlyShutdown(t *testing.T) {
 	w.Stop()
 
 	assert.Equal(t, "helloworld!!!", buff.String())
+
+	_, err = w.Write([]byte("stop"))
+
+	assert.ErrorIs(t, err, ErrorWriteAsyncerIsClosed, "Expected error")
+	assert.Equal(t, "helloworld!!!", buff.String())
 }
 
-func TestWriteAsyncer_Callback(t *testing.T) {
-	conf := NewConfig().WithCallback(&callback{})
+func TestWriteAsyncer_OnWriteFailed(t *testing.T) {
+	conf := NewConfig().WithCallback(&callback{t: t}).WithBufferSize(64)
 
-	w := NewWriteAsyncer(os.Stdout, conf)
+	w := NewWriteAsyncer(&faultyWriter{}, conf)
 	defer w.Stop()
 
-	_, err := w.Write([]byte("hello"))
-	assert.Nil(t, err)
-	_, err = w.Write([]byte("world"))
-	assert.Nil(t, err)
-	_, err = w.Write([]byte("!!!"))
-	assert.Nil(t, err)
+	for i := 0; i < 10; i++ {
+		_, err := w.Write(largeBytes)
+		assert.Nil(t, err)
+	}
 
 	time.Sleep(time.Second)
-
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a0)
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a1)
-	assert.Equal(t, []string{"hello", "world", "!!!"}, w.config.callback.(*callback).a2)
 }

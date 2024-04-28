@@ -15,38 +15,16 @@ type Writer interface {
 // Callback 是一个接口，定义了队列操作和写操作的回调函数。
 // Callback is an interface that defines callback functions for queue operations and write operations.
 type Callback interface {
-	// OnPushQueue 方法在数据被推入队列时调用。
-	// The OnPushQueue method is called when data is pushed into the queue.
-	OnPushQueue([]byte)
-
-	// OnPopQueue 方法在数据从队列中弹出时调用。
-	// The OnPopQueue method is called when data is popped from the queue.
-	OnPopQueue([]byte, int64)
-
-	// OnWriteSuccess 方法在数据成功写入时调用。
-	// The OnWriteSuccess method is called when data is successfully written.
-	OnWriteSuccess([]byte)
-
-	// OnWriteFailed 方法在数据写入失败时调用，会传入失败的错误信息。
-	// The OnWriteFailed method is called when data writing fails, and the failure error information will be passed in.
-	OnWriteFailed([]byte, error)
+	// OnWriteFailed 是一个方法，当写操作失败时会被调用。
+	// 它接受两个参数：一个字节切片（表示写入内容）和一个错误（表示失败的原因）。
+	// OnWriteFailed is a method that is called when a write operation fails.
+	// It takes two parameters: a byte slice (indicating the content to be written) and an error (indicating the reason for the failure).
+	OnWriteFailed(content []byte, reason error)
 }
 
 // emptyCallback 是一个实现了 Callback 接口的结构体，但所有方法的实现都为空。
 // emptyCallback is a struct that implements the Callback interface, but all method implementations are empty.
 type emptyCallback struct{}
-
-// OnPushQueue 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
-// OnPushQueue is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
-func (c *emptyCallback) OnPushQueue([]byte) {}
-
-// OnPopQueue 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
-// OnPopQueue is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
-func (c *emptyCallback) OnPopQueue([]byte, int64) {}
-
-// OnWriteSuccess 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
-// OnWriteSuccess is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
-func (c *emptyCallback) OnWriteSuccess([]byte) {}
 
 // OnWriteFailed 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
 // OnWriteFailed is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.

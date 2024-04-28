@@ -85,6 +85,18 @@ func main() {
 
 `LAW` 支持回调函数。在创建写入器时，您可以指定一个回调函数，当写入器执行特定操作时，回调函数将被调用。
 
+```go
+// Callback 是一个接口，定义了队列操作和写操作的回调函数。
+// Callback is an interface that defines callback functions for queue operations and write operations.
+type Callback interface {
+	// OnWriteFailed 是一个方法，当写操作失败时会被调用。
+	// 它接受两个参数：一个字节切片（表示写入内容）和一个错误（表示失败的原因）。
+	// OnWriteFailed is a method that is called when a write operation fails.
+	// It takes two parameters: a byte slice (indicating the content to be written) and an error (indicating the reason for the failure).
+	OnWriteFailed(content []byte, reason error)
+}
+```
+
 > [!TIP]
 >
 > 回调函数是可选的。如果您不需要回调函数，可以在创建写入器时传递 `nil`，回调函数将不会被调用。
@@ -107,24 +119,6 @@ import (
 // callback 是一个实现了 law.Callback 接口的结构体
 // callback is a struct that implements the law.Callback interface
 type callback struct{}
-
-// OnPushQueue 是当数据被推入队列时的回调函数
-// OnPushQueue is the callback function when data is pushed into the queue
-func (c *callback) OnPushQueue(b []byte) {
-	fmt.Printf("push queue msg: %s\n", string(b)) // 输出推入队列的消息
-}
-
-// OnPopQueue 是当数据从队列中弹出时的回调函数
-// OnPopQueue is the callback function when data is popped from the queue
-func (c *callback) OnPopQueue(b []byte, lantcy int64) {
-	fmt.Printf("pop queue msg: %s, lantcy: %d\n", string(b), lantcy) // 输出弹出队列的消息和延迟
-}
-
-// OnWriteSuccess 是当数据写入成功时的回调函数
-// OnWriteSuccess is the callback function when data writing succeeds
-func (c *callback) OnWriteSuccess(b []byte) {
-	fmt.Printf("write success msg: %s\n", string(b)) // 输出写入成功的消息
-}
 
 // OnWriteFailed 是当数据写入失败时的回调函数
 // OnWriteFailed is the callback function when data writing fails
