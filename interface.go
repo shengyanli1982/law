@@ -15,9 +15,11 @@ type Writer interface {
 // Callback 是一个接口，定义了队列操作和写操作的回调函数。
 // Callback is an interface that defines callback functions for queue operations and write operations.
 type Callback interface {
-	// OnWriteFailed 方法在数据写入失败时调用，会传入失败的错误信息。
-	// The OnWriteFailed method is called when data writing fails, and the failure error information will be passed in.
-	OnWriteFailed([]byte, error)
+	// OnWriteFailed 是一个方法，当写操作失败时会被调用。
+	// 它接受两个参数：一个字节切片（表示写入内容）和一个错误（表示失败的原因）。
+	// OnWriteFailed is a method that is called when a write operation fails.
+	// It takes two parameters: a byte slice (indicating the content to be written) and an error (indicating the reason for the failure).
+	OnWriteFailed(content []byte, reason error)
 }
 
 // emptyCallback 是一个实现了 Callback 接口的结构体，但所有方法的实现都为空。
