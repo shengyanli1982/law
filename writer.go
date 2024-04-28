@@ -208,6 +208,26 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// flushBufferedWriter 方法用于将数据写入到 bufferedWriter
+// The flushBufferedWriter method is used to write data to the bufferedWriter
+func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
+	// 如果数据的长度大于 bufferedWriter 的可用空间，并且 bufferedWriter 中已经有缓冲的数据
+	// If the length of the data is greater than the available space of the bufferedWriter, and there is already buffered data in the bufferedWriter
+	if len(p) > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
+		// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
+		// Flush the bufferedWriter, writing all buffered data to the writer
+		if err := wa.bufferedWriter.Flush(); err != nil {
+			// 如果刷新失败，那么直接将数据写入到 writer，并返回写入的长度和错误
+			// If the flush fails, then write the data directly to the writer and return the length of the write and the error
+			return wa.writer.Write(p)
+		}
+	}
+
+	// 将数据写入到 bufferedWriter，并返回写入的长度和错误
+	// Write the data to the bufferedWriter and return the length of the write and the error
+	return wa.bufferedWriter.Write(p)
+}
+
 // poller 方法用于从队列中获取元素并执行相应的函数
 // The poller method is used to get elements from the queue and execute the corresponding functions
 func (wa *WriteAsyncer) poller() {
@@ -319,7 +339,7 @@ func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
 
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
-	if _, err := wa.bufferedWriter.Write(content); err != nil {
+	if _, err := wa.flushBufferedWriter(content); err != nil {
 		// 如果写入失败，那么将 content 复制到一个新的切片中。因为 Buffer 会被重置，原有的数据会被覆盖。
 		// If the write fails, then copy content to a new slice. Because the Buffer will be reset, the original data will be overwritten.
 		failContent := make([]byte, len(content))
