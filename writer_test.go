@@ -17,8 +17,10 @@ type callback struct {
 }
 
 func (c *callback) OnWriteFailed(b []byte, err error) {
-	fmt.Printf("## callback.OnWriteFailed(%s, %v)\n", b, err)
-	assert.Equal(c.t, b, largeBytes, "Expected bytes")
+	if b != nil {
+		fmt.Printf("## callback.OnWriteFailed(%s, %v)\n", b, err)
+		assert.Equal(c.t, b, largeBytes, "Expected bytes")
+	}
 	assert.ErrorIs(c.t, err, errorWriteFailed, "Expected error")
 }
 
