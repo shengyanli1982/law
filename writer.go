@@ -217,9 +217,9 @@ func (wa *WriteAsyncer) flushBufferedWriter(p []byte) (int, error) {
 		// 刷新 bufferedWriter，将所有缓冲的数据写入到 writer
 		// Flush the bufferedWriter, writing all buffered data to the writer
 		if err := wa.bufferedWriter.Flush(); err != nil {
-			// 如果刷新失败，那么直接将数据写入到 writer，并返回写入的长度和错误
-			// If the flush fails, then write the data directly to the writer and return the length of the write and the error
-			return wa.writer.Write(p)
+			// 如果刷新操作失败，返回写入的长度（此时为0）和错误
+			// If the flush operation fails, return the length of the write (which is now 0) and the error
+			return 0, err
 		}
 	}
 
