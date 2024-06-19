@@ -21,7 +21,6 @@ var encoderCfg = zapcore.EncoderConfig{
 func BenchmarkBlackHoleWriter(b *testing.B) {
 	w := xu.BlackHoleWriter{}
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
@@ -32,7 +31,6 @@ func BenchmarkBlackHoleWriter(b *testing.B) {
 func BenchmarkBlackHoleWriterParallel(b *testing.B) {
 	w := xu.BlackHoleWriter{}
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -47,7 +45,6 @@ func BenchmarkLogAsyncWriter(b *testing.B) {
 	aw := x.NewWriteAsyncer(&w, nil)
 	defer aw.Stop()
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
@@ -61,7 +58,6 @@ func BenchmarkLogAsyncWriterParallel(b *testing.B) {
 	aw := x.NewWriteAsyncer(&w, nil)
 	defer aw.Stop()
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -78,7 +74,6 @@ func BenchmarkZapSyncWriter(b *testing.B) {
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapSyncWriter, zapcore.DebugLevel)
 	zapLogger := zap.New(zapCore)
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
@@ -92,7 +87,6 @@ func BenchmarkZapSyncWriterParallel(b *testing.B) {
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapSyncWriter, zapcore.DebugLevel)
 	zapLogger := zap.New(zapCore)
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
@@ -112,7 +106,6 @@ func BenchmarkZapAsyncWriter(b *testing.B) {
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapAsyncWriter, zapcore.DebugLevel)
 	zapLogger := zap.New(zapCore)
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
@@ -130,7 +123,6 @@ func BenchmarkZapAsyncWriterParallel(b *testing.B) {
 	zapCore := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapAsyncWriter, zapcore.DebugLevel)
 	zapLogger := zap.New(zapCore)
 
-	b.ReportAllocs()
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {

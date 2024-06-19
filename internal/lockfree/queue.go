@@ -5,9 +5,29 @@ import (
 	"unsafe"
 )
 
+// loadNode 函数用于加载指定指针 p 指向的 Node 结构体
+// The loadNode function is used to load the Node struct pointed to by the specified pointer p
+func loadNode(p *unsafe.Pointer) *Node {
+	// 使用 atomic.LoadPointer 加载并返回指定指针 p 指向的 Node 结构体
+	// Uses atomic.LoadPointer to load and return the Node struct pointed to by the specified pointer p
+	return (*Node)(atomic.LoadPointer(p))
+}
+
+// compareAndSwapNode 函数用于比较并交换指定指针 p 指向的 Node 结构体
+// The compareAndSwapNode function is used to compare and swap the Node struct pointed to by the specified pointer p
+func compareAndSwapNode(p *unsafe.Pointer, old, new *Node) bool {
+	// 使用 atomic.CompareAndSwapPointer 比较并交换指定指针 p 指向的 Node 结构体
+	// Uses atomic.CompareAndSwapPointer to compare and swap the Node struct pointed to by the specified pointer p
+	return atomic.CompareAndSwapPointer(p, unsafe.Pointer(old), unsafe.Pointer(new))
+}
+
 // LockFreeQueue 是一个无锁队列结构体
 // LockFreeQueue is a lock-free queue struct
 type LockFreeQueue struct {
+	// pool 是一个 NodePool 结构体实例的指针
+	// pool is a pointer to an instance of the NodePool struct
+	pool *NodePool
+
 	// length 是队列的长度
 	// length is the length of the queue
 	length int64
@@ -21,27 +41,36 @@ type LockFreeQueue struct {
 	tail unsafe.Pointer
 }
 
-// NewLockFreeQueue 函数用于创建一个新的 LockFreeQueue 结构体实例
-// The NewLockFreeQueue function is used to create a new instance of the LockFreeQueue struct
+// NewLockFreeQueue 函数用于创建一个新的 LockFreeQueue 结构体实例。
+// The NewLockFreeQueue function is used to create a new instance of the LockFreeQueue struct.
 func NewLockFreeQueue() *LockFreeQueue {
-	// 创建一个新的 Node 结构体实例
-	// Create a new Node struct instance
-	emptyNode := NewNode(nil)
+	// 创建一个新的 Node 结构体实例。
+	// Create a new Node struct instance.
+	firstNode := NewNode(nil)
 
-	// 返回一个新的 LockFreeQueue 结构体实例，其中 head 和 tail 都指向 dummy 节点
-	// Returns a new instance of the LockFreeQueue struct, where both head and tail point to the dummy node
+	// 返回一个新的 LockFreeQueue 结构体实例。
+	// Returns a new instance of the LockFreeQueue struct.
 	return &LockFreeQueue{
-		head: unsafe.Pointer(emptyNode),
-		tail: unsafe.Pointer(emptyNode),
+		// 创建一个新的 NodePool 实例，用于管理 Node 实例。
+		// Create a new NodePool instance for managing Node instances.
+		pool: NewNodePool(),
+
+		// 初始化 head 指针，指向我们刚刚创建的 Node 实例。
+		// Initialize the head pointer to point to the Node instance we just created.
+		head: unsafe.Pointer(firstNode),
+
+		// 初始化 tail 指针，也指向我们刚刚创建的 Node 实例。
+		// Initialize the tail pointer to also point to the Node instance we just created.
+		tail: unsafe.Pointer(firstNode),
 	}
 }
 
 // Push 方法用于将一个值添加到 LockFreeQueue 队列的末尾
 // The Push method is used to add a value to the end of the LockFreeQueue queue
 func (q *LockFreeQueue) Push(value interface{}) {
-	// 创建一个新的 Node 结构体实例
-	// Create a new Node struct instance
-	node := NewNode(nil)
+	// 从 NodePool 中获取一个新的 Node 实例
+	// Get a new Node instance from the NodePool
+	node := q.pool.Get()
 
 	// 将新节点的 value 字段设置为传入的值
 	// Set the value field of the new node to the passed in value
@@ -133,9 +162,9 @@ func (q *LockFreeQueue) Pop() interface{} {
 					// If successful, then decrease the length of the queue
 					atomic.AddInt64(&q.length, -1)
 
-					// 然后重置头节点
-					// Then reset the head node
-					head.Reset()
+					// 重置头节点，将其归还 NodePool
+					// Reset the head node and put it back into the NodePool
+					q.pool.Put(head)
 
 					// 如果结果不是空值，返回结果
 					// If the result is not an empty value, return the result
@@ -163,12 +192,12 @@ func (q *LockFreeQueue) Length() int64 {
 func (q *LockFreeQueue) Reset() {
 	// 创建一个新的 Node 结构体实例
 	// Create a new Node struct instance
-	emptyNode := NewNode(nil)
+	fristNode := NewNode(nil)
 
 	// 将队列的头节点和尾节点都设置为新创建的节点
 	// Set both the head node and the tail node of the queue to the newly created node
-	q.head = unsafe.Pointer(emptyNode)
-	q.tail = unsafe.Pointer(emptyNode)
+	q.head = unsafe.Pointer(fristNode)
+	q.tail = unsafe.Pointer(fristNode)
 
 	// 使用 atomic.StoreInt64 函数将队列的长度设置为 0
 	// Use the atomic.StoreInt64 function to set the length of the queue to 0
