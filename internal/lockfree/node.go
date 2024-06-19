@@ -1,7 +1,7 @@
 package lockfree
 
 import (
-	"sync/atomic"
+	"sync"
 	"unsafe"
 )
 
@@ -37,18 +37,41 @@ func (n *Node) Reset() {
 	n.next = nil
 }
 
-// loadNode 函数用于加载指定指针 p 指向的 Node 结构体
-// The loadNode function is used to load the Node struct pointed to by the specified pointer p
-func loadNode(p *unsafe.Pointer) *Node {
-	// 使用 atomic.LoadPointer 加载并返回指定指针 p 指向的 Node 结构体
-	// Uses atomic.LoadPointer to load and return the Node struct pointed to by the specified pointer p
-	return (*Node)(atomic.LoadPointer(p))
+// NodePool 是一个结构体，它包含一个同步池（sync.Pool）的指针。
+// NodePool is a struct that contains a pointer to a sync.Pool.
+type NodePool struct {
+	pool *sync.Pool
 }
 
-// compareAndSwapNode 函数用于比较并交换指定指针 p 指向的 Node 结构体
-// The compareAndSwapNode function is used to compare and swap the Node struct pointed to by the specified pointer p
-func compareAndSwapNode(p *unsafe.Pointer, old, new *Node) bool {
-	// 使用 atomic.CompareAndSwapPointer 比较并交换指定指针 p 指向的 Node 结构体
-	// Uses atomic.CompareAndSwapPointer to compare and swap the Node struct pointed to by the specified pointer p
-	return atomic.CompareAndSwapPointer(p, unsafe.Pointer(old), unsafe.Pointer(new))
+// NewNodePool 是一个构造函数，它返回一个新的 NodePool 实例。
+// NewNodePool is a constructor that returns a new instance of NodePool.
+func NewNodePool() *NodePool {
+	return &NodePool{
+		// 在这里，我们初始化 sync.Pool，并提供一个函数来生成新的 Node 实例。
+		// Here, we initialize the sync.Pool and provide a function to generate new Node instances.
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return NewNode(nil)
+			},
+		},
+	}
+}
+
+// Get 方法从 NodePool 中获取一个 Node 实例。
+// The Get method retrieves a Node instance from the NodePool.
+func (p *NodePool) Get() *Node {
+	// 我们从 sync.Pool 中获取一个对象，并将其转换为 Node 指针。
+	// We get an object from the sync.Pool and cast it to a Node pointer.
+	return p.pool.Get().(*Node)
+}
+
+// Put 方法将一个 Node 实例放回到 NodePool 中。
+// The Put method puts a Node instance back into the NodePool.
+func (p *NodePool) Put(n *Node) {
+	// 如果 Node 不为 nil，我们将其重置并放回到 sync.Pool 中。
+	// If the Node is not nil, we reset it and put it back into the sync.Pool.
+	if n != nil {
+		n.Reset()
+		p.pool.Put(n)
+	}
 }

@@ -678,4 +678,4 @@ done
 
 **Results:**
 
-![sync](examples/http/server/pics/asyncwriter.png)
+![async](examples/http/server/pics/asyncwriter.png)

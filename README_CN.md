@@ -677,4 +677,4 @@ done
 
 **执行结果**
 
-![sync](examples/http/server/pics/asyncwriter.png)
+![async](examples/http/server/pics/asyncwriter.png)

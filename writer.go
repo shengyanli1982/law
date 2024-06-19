@@ -65,9 +65,9 @@ type WriteAsyncer struct {
 	// state is used to store the status of the write asyncer
 	state *wr.Status
 
-	// elementpool 用于存储元素池
-	// elementpool is used to store the element pool
-	elementpool *wr.ElementPool
+	// bufferpool 用于存储元素池
+	// bufferpool is used to store the element pool
+	bufferpool *wr.BufferPool
 }
 
 // NewWriteAsyncer 函数用于创建一个新的 WriteAsyncer 实例
@@ -116,7 +116,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 		// 初始化元素池
 		// Initialize the element pool
-		elementpool: wr.NewElementPool(),
+		bufferpool: wr.NewBufferPool(),
 	}
 
 	// 创建一个新的 context.Context 实例，并设置一个取消函数
@@ -190,18 +190,18 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	}
 
 	// 从元素池中获取一个元素
-	// Get an elem from the elem pool
-	elem := wa.elementpool.Get()
+	// Get an buff from the buff pool
+	buff := wa.bufferpool.Get()
 
 	// 将数据设置到元素的 buffer 字段
 	// Set the data to the buffer field of the element
-	if n, err = elem.Write(p); err != nil {
+	if n, err = buff.Write(p); err != nil {
 		return
 	}
 
 	// 将元素添加到队列
 	// Add the element to the queue
-	wa.config.queue.Push(elem)
+	wa.config.queue.Push(buff)
 
 	// 返回数据的长度和 nil 错误
 	// Return the length of the data and a nil error
@@ -247,12 +247,12 @@ func (wa *WriteAsyncer) poller() {
 	for {
 		// 尝试从队列中弹出一个元素
 		// Try to pop an element from the queue
-		elem := wa.config.queue.Pop()
+		element := wa.config.queue.Pop()
 
 		// 如果元素不为空，执行 executeFunc 函数
 		// If the element is not null, execute the executeFunc function
-		if elem != nil {
-			wa.executeFunc(elem.(*bytes.Buffer))
+		if element != nil {
+			wa.executeFunc(element.(*bytes.Buffer))
 		} else {
 			select {
 			// 如果接收到 ctx.Done 的信号，那么结束循环
@@ -324,7 +324,7 @@ func (wa *WriteAsyncer) updateTimer() {
 
 // executeFunc 方法用于执行 WriteAsyncer 的写入操作
 // The executeFunc method is used to perform the write operation of the WriteAsyncer
-func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
+func (wa *WriteAsyncer) executeFunc(buff *bytes.Buffer) {
 	// 获取当前的 Unix 毫秒时间
 	// Get the current Unix millisecond time
 	now := wa.timer.Load()
@@ -335,7 +335,7 @@ func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
 
 	// content 是一个变量，它获取 elem 的缓冲区的字节
 	// content is a variable that gets the bytes of the buffer of elem
-	content := elem.Bytes()
+	content := buff.Bytes()
 
 	// 将元素的数据写入到 bufferedWriter
 	// Write the data of the element to the bufferedWriter
@@ -352,7 +352,7 @@ func (wa *WriteAsyncer) executeFunc(elem *bytes.Buffer) {
 
 	// 将 elem 放回到 elementpool 中
 	// Put elem back into the elementpool
-	wa.elementpool.Put(elem)
+	wa.bufferpool.Put(buff)
 }
 
 // cleanQueueToWriter 方法用于将队列中的所有数据写入到 writer
