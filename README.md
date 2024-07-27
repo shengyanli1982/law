@@ -29,6 +29,12 @@ With just two APIs, `Write` and `Stop`, `LAW` offers simplicity and ease of use.
 -   Optimized for efficient garbage collection
 -   Supports customizable action callback functions
 
+# Design
+
+Following the design, the architecture UML diagram for `LAW` is shown below:
+
+![design](assets/architecture.png)
+
 # Installation
 
 ```bash

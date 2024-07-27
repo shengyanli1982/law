@@ -28,6 +28,12 @@
 -   优化了垃圾回收
 -   支持操作回调函数
 
+# 设计
+
+根据设计，`LAW` 的架构 UML 图如下所示：
+
+![design](assets/architecture.png)
+
 # 安装
 
 ```bash
