@@ -1,51 +1,47 @@
 package law
 
-// Writer 是一个接口，定义了写操作的行为。
-// Writer is an interface that defines the behavior of write operations.
+// Writer 定义了写入器接口
+// Writer defines the writer interface
 type Writer interface {
-	// Write 方法接受一个字节切片，返回写入的字节数和可能的错误。
-	// The Write method accepts a byte slice and returns the number of bytes written and a possible error.
+	// Write 写入数据，返回写入的字节数和可能的错误
+	// Write writes data and returns the number of bytes written and any error
 	Write([]byte) (int, error)
 
-	// Stop 方法用于停止写操作。
-	// The Stop method is used to stop write operations.
+	// Stop 停止写入器
+	// Stop stops the writer
 	Stop()
 }
 
-// Callback 是一个接口，定义了队列操作和写操作的回调函数。
-// Callback is an interface that defines callback functions for queue operations and write operations.
+// Callback 定义了回调接口
+// Callback defines the callback interface
 type Callback interface {
-	// OnWriteFailed 是一个方法，当写操作失败时会被调用。
-	// 它接受两个参数：一个字节切片（表示写入内容）和一个错误（表示失败的原因）。
-	// OnWriteFailed is a method that is called when a write operation fails.
-	// It takes two parameters: a byte slice (indicating the content to be written) and an error (indicating the reason for the failure).
+	// OnWriteFailed 当写入失败时被调用
+	// OnWriteFailed is called when writing fails
 	OnWriteFailed(content []byte, reason error)
 }
 
-// emptyCallback 是一个实现了 Callback 接口的结构体，但所有方法的实现都为空。
-// emptyCallback is a struct that implements the Callback interface, but all method implementations are empty.
+// emptyCallback 空回调实现
+// emptyCallback is an empty callback implementation
 type emptyCallback struct{}
 
-// OnWriteFailed 是 emptyCallback 结构体实现 Callback 接口的方法，但此方法没有任何实现。
-// OnWriteFailed is a method of the emptyCallback struct that implements the Callback interface, but this method has no implementation.
+// OnWriteFailed 空回调的写入失败处理方法（无操作）
+// OnWriteFailed handles write failures for empty callback (no-op)
 func (c *emptyCallback) OnWriteFailed([]byte, error) {}
 
-// newEmptyCallback 是一个构造函数，用于创建一个新的 emptyCallback 实例。
-// newEmptyCallback is a constructor function for creating a new emptyCallback instance.
+// newEmptyCallback 创建新的空回调实例
+// newEmptyCallback creates a new empty callback instance
 func newEmptyCallback() Callback {
-	// 返回一个新的 emptyCallback 实例。
-	// Return a new emptyCallback instance.
 	return &emptyCallback{}
 }
 
-// Queue 是一个接口，定义了队列的基本操作：Push 和 Pop。
-// Queue is an interface that defines the basic operations of a queue: Push and Pop.
+// Queue 定义了队列接口
+// Queue defines the queue interface
 type Queue interface {
-	// Push 方法用于将值添加到队列中。
-	// The Push method is used to add a value to the queue.
+	// Push 将值推入队列
+	// Push pushes a value into the queue
 	Push(value interface{})
 
-	// Pop 方法用于从队列中取出一个值。
-	// The Pop method is used to take a value out of the queue.
+	// Pop 从队列中取出值
+	// Pop retrieves a value from the queue
 	Pop() interface{}
 }
