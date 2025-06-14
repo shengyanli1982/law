@@ -24,3 +24,4 @@ go.work.sum
 .vscode/
 .idea/
 .DS_Store
+.cursorrules
