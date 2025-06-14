@@ -238,7 +238,7 @@ func TestWriteAsyncer_BufferHandling(t *testing.T) {
 		_, err := w.Write([]byte("test"))
 		assert.Nil(t, err)
 
-		time.Sleep(defaultIdleTimeout + time.Second)
+		time.Sleep(DefaultIdleTimeout + time.Second)
 		assert.Equal(t, "test", buff.String())
 	})
 }
