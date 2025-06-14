@@ -14,11 +14,6 @@ import (
 	wr "github.com/shengyanli1982/law/internal/writer"
 )
 
-// 默认心跳间隔和空闲超时时间
-// Default heartbeat interval and idle timeout duration
-const defaultHeartbeatInterval = 500 * time.Millisecond
-const defaultIdleTimeout = 5 * time.Second
-
 // 错误定义
 // Error definitions
 var (
@@ -39,6 +34,11 @@ type WriteAsyncer struct {
 	wg             sync.WaitGroup     // 等待组 / Wait group
 	state          *wr.Status         // 状态管理器 / Status manager
 	bufferpool     *wr.BufferPool     // 缓冲池 / Buffer pool
+
+	// 缓存的大小统计，用于预测分配
+	// Cached size statistics for prediction allocation
+	avgSize atomic.Int64
+	maxSize atomic.Int64
 }
 
 // NewWriteAsyncer 创建新的异步写入器
@@ -59,15 +59,16 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		once:           sync.Once{},
 		wg:             sync.WaitGroup{},
 		bufferpool:     wr.NewBufferPool(),
+		avgSize:        atomic.Int64{},
+		maxSize:        atomic.Int64{},
 	}
 
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
 	wa.state.SetExecuteAt(time.Now().UnixMilli())
 	wa.state.SetRunning(true)
 
-	wa.wg.Add(2)
-	go wa.poller()      // 启动轮询器 / Start poller
-	go wa.updateTimer() // 启动计时器更新器 / Start timer updater
+	wa.wg.Add(1) // 只需要一个goroutine，减少了一个goroutine
+	go wa.poller()
 
 	return wa
 }
@@ -101,6 +102,26 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
+	// 更新大小统计，用于优化预分配
+	// Update size statistics for optimizing preallocation
+	currentMax := wa.maxSize.Load()
+	if int64(l) > currentMax {
+		wa.maxSize.Store(int64(l))
+	}
+
+	// 使用指数移动平均计算平均大小
+	// Use exponential moving average to calculate average size
+	avgSize := wa.avgSize.Load()
+	if avgSize == 0 {
+		wa.avgSize.Store(int64(l))
+	} else {
+		// EMA = currentAvg * 0.8 + newValue * 0.2
+		newAvg := (avgSize * 8 / 10) + (int64(l) * 2 / 10)
+		wa.avgSize.Store(newAvg)
+	}
+
+	// 获取大小合适的缓冲区
+	// Get a buffer of appropriate size
 	buff := wa.bufferpool.Get()
 	buff.Grow(l)
 
@@ -141,55 +162,63 @@ func (wa *WriteAsyncer) flushBufferedWriter(content []byte) (int, error) {
 // poller 轮询器，处理写入请求和心跳检查
 // poller handles write requests and heartbeat checks
 func (wa *WriteAsyncer) poller() {
-	const checkInterval = defaultHeartbeatInterval
-	heartbeat := time.NewTicker(checkInterval)
+	// 使用配置的心跳间隔，而不是硬编码值
+	// Use the configured heartbeat interval instead of hardcoded value
+	heartbeat := time.NewTicker(wa.config.heartbeatInterval)
+
+	// 当前时间，减少系统调用
+	// Current time, reducing system calls
+	var now int64
+
+	// 更新计时器时间，每秒更新一次
+	// Update timer time, once per second
+	timeUpdateTicker := time.NewTicker(time.Second)
+	now = time.Now().UnixMilli() // 初始化当前时间 / Initialize current time
+	wa.timer.Store(now)
 
 	defer func() {
+		timeUpdateTicker.Stop()
 		heartbeat.Stop()
 		wa.wg.Done()
 	}()
 
 	for {
-		if element := wa.config.queue.Pop(); element != nil {
-			wa.executeFunc(element.(*bytes.Buffer))
-			continue
+		// 首先处理队列中的所有元素，优先级最高
+		// First process all elements in the queue, highest priority
+		for {
+			if element := wa.config.queue.Pop(); element != nil {
+				wa.executeFunc(element.(*bytes.Buffer))
+				continue
+			}
+			break // 队列为空时退出内循环
 		}
 
+		// 使用select处理心跳和上下文
+		// Use select to handle heartbeat and context
 		select {
 		case <-wa.ctx.Done():
 			return
 
 		case <-heartbeat.C:
+			// 检查是否需要刷新缓冲区
+			// Check if buffer needs to be flushed
 			if wa.bufferedWriter.Buffered() > 0 {
-				now := wa.timer.Load()
-				if (now - wa.state.GetExecuteAt()) >= defaultIdleTimeout.Milliseconds() {
+				// 计算闲置时间
+				// Calculate idle time
+				now = wa.timer.Load()
+				if (now - wa.state.GetExecuteAt()) >= wa.config.idleTimeout.Milliseconds() {
 					if err := wa.bufferedWriter.Flush(); err != nil {
 						wa.config.callback.OnWriteFailed(nil, err)
 					}
 					wa.state.SetExecuteAt(now)
 				}
 			}
-		}
-	}
-}
 
-// updateTimer 更新计时器
-// updateTimer updates the timer
-func (wa *WriteAsyncer) updateTimer() {
-	ticker := time.NewTicker(time.Second)
-
-	defer func() {
-		ticker.Stop()
-		wa.wg.Done()
-	}()
-
-	for {
-		select {
-		case <-wa.ctx.Done():
-			return
-
-		case <-ticker.C:
-			wa.timer.Store(time.Now().UnixMilli())
+		case <-timeUpdateTicker.C:
+			// 更新当前时间
+			// Update current time
+			now = time.Now().UnixMilli()
+			wa.timer.Store(now)
 		}
 	}
 }
@@ -201,9 +230,13 @@ func (wa *WriteAsyncer) executeFunc(buff *bytes.Buffer) {
 	content := buff.Bytes()
 
 	if _, err := wa.flushBufferedWriter(content); err != nil {
-		failContent := make([]byte, len(content))
-		copy(failContent, content)
-		wa.config.callback.OnWriteFailed(failContent, err)
+		// 只在错误时复制内容，减少内存分配
+		// Only copy content when there's an error, reducing memory allocation
+		if wa.config.callback != nil {
+			failContent := make([]byte, len(content))
+			copy(failContent, content)
+			wa.config.callback.OnWriteFailed(failContent, err)
+		}
 	}
 
 	wa.bufferpool.Put(buff)

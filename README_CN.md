@@ -204,7 +204,57 @@ func main() {
 }
 ```
 
-## 3. 自定义队列
+## 3. 心跳间隔和闲置超时
+
+`LAW` 允许您配置写入器的心跳间隔和闲置超时。心跳间隔决定了写入器检查新数据的频率，而闲置超时则决定了在没有新数据时，写入器等待多长时间后刷新缓冲区。
+
+> [!TIP]
+>
+> -   默认的心跳间隔是 `500ms`，意味着写入器每 500 毫秒检查一次新数据。
+> -   默认的闲置超时是 `5s`，意味着写入器在没有活动 5 秒后刷新缓冲区。
+>
+> 您可以使用 `WithHeartbeatInterval` 和 `WithIdleTimeout` 方法来自定义这些值。
+
+### 示例
+
+```go
+package main
+
+import (
+	"os"
+	"time"
+	"strconv"
+
+	law "github.com/shengyanli1982/law"
+)
+
+func main() {
+	// 创建一个新的配置，并设置心跳间隔和闲置超时
+	// Create a new configuration and set the heartbeat interval and idle timeout
+	conf := NewConfig().
+		WithHeartbeatInterval(200 * time.Millisecond).
+		WithIdleTimeout(3 * time.Second)
+
+	// 使用 os.Stdout 和配置创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout and the configuration
+	w := NewWriteAsyncer(os.Stdout, conf)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
+	defer w.Stop()
+
+	// 循环 10 次，每次都将一个数字写入 WriteAsyncer
+	// Loop 10 times, each time write a number to WriteAsyncer
+	for i := 0; i < 10; i++ {
+		_, _ = w.Write([]byte(strconv.Itoa(i))) // 将当前的数字写入 WriteAsyncer
+	}
+
+	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
+	// Wait for 1 second so we can see the output of WriteAsyncer
+	time.Sleep(time.Second)
+}
+```
+
+## 4. 自定义队列
 
 `LAW` 提供了自定义存储日志数据的队列的灵活性。您可以选择实现自己的队列，并在初始化时将其传递给写入器。
 

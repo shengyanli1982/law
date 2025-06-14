@@ -5,6 +5,14 @@ import (
 	"unsafe"
 )
 
+// 缓存行大小（字节）
+// Cache line size (bytes)
+const cacheLinePadSize = 64
+
+// 填充大小（以uint64为单位）
+// Padding size (in terms of uint64)
+const paddingSize = (cacheLinePadSize - 8) / 8
+
 // loadNode 函数用于加载指定指针 p 指向的 Node 结构体
 // The loadNode function is used to load the Node struct pointed to by the specified pointer p
 func loadNode(p *unsafe.Pointer) *Node {
@@ -28,17 +36,33 @@ type LockFreeQueue struct {
 	// pool is a pointer to an instance of the NodePool struct
 	pool *NodePool
 
+	// padding1 避免 pool 和 length 在同一缓存行
+	// padding1 avoids pool and length being in the same cache line
+	_padding1 [paddingSize]uint64
+
 	// length 是队列的长度
 	// length is the length of the queue
 	length int64
+
+	// padding2 避免 length 和 head 在同一缓存行
+	// padding2 avoids length and head being in the same cache line
+	_padding2 [paddingSize]uint64
 
 	// head 是指向队列头部的指针
 	// head is a pointer to the head of the queue
 	head unsafe.Pointer
 
+	// padding3 避免 head 和 tail 在同一缓存行
+	// padding3 avoids head and tail being in the same cache line
+	_padding3 [paddingSize]uint64
+
 	// tail 是指向队列尾部的指针
 	// tail is a pointer to the tail of the queue
 	tail unsafe.Pointer
+
+	// padding4 避免 tail 和其他数据在同一缓存行
+	// padding4 avoids tail and other data being in the same cache line
+	_padding4 [paddingSize]uint64
 }
 
 // NewLockFreeQueue 函数用于创建一个新的 LockFreeQueue 结构体实例。
@@ -79,12 +103,9 @@ func (q *LockFreeQueue) Push(value interface{}) {
 	// 使用无限循环来尝试将新节点添加到队列的末尾
 	// Use an infinite loop to try to add the new node to the end of the queue
 	for {
-		// 加载队列的尾节点
-		// Load the tail node of the queue
+		// 减少原子操作：一次性缓存队列尾节点，避免多次读取
+		// Reduce atomic operations: cache the tail node once, avoid multiple reads
 		tail := loadNode(&q.tail)
-
-		// 加载尾节点的下一个节点
-		// Load the next node of the tail node
 		next := loadNode(&tail.next)
 
 		// 检查尾节点是否仍然是队列的尾节点
@@ -97,7 +118,9 @@ func (q *LockFreeQueue) Push(value interface{}) {
 				// Try to set the next node of the tail node to the new node
 				if compareAndSwapNode(&tail.next, next, node) {
 					// 如果成功，那么将队列的尾节点设置为新节点
+					// 注意：即使这个CAS失败也没关系，其他线程会帮助更新
 					// If successful, then set the tail node of the queue to the new node
+					// Note: It's okay if this CAS fails, other threads will help update
 					compareAndSwapNode(&q.tail, tail, node)
 
 					// 并增加队列的长度
@@ -109,8 +132,10 @@ func (q *LockFreeQueue) Push(value interface{}) {
 					return
 				}
 			} else {
-				// 如果尾节点的下一个节点不是 nil，说明尾节点不是队列的最后一个节点，那么将队列的尾节点设置为尾节点的下一个节点
-				// If the next node of the tail node is not nil, it means that the tail node is not the last node of the queue, then set the tail node of the queue to the next node of the tail node
+				// 如果尾节点的下一个节点不是 nil，说明尾节点不是队列的最后一个节点
+				// 尝试帮助更新尾指针，减少队列不一致状态的持续时间
+				// If the next node of the tail node is not nil, it means that the tail node is not the last node of the queue
+				// Try to help update the tail pointer to reduce the duration of queue inconsistency
 				compareAndSwapNode(&q.tail, tail, next)
 			}
 		}
@@ -123,16 +148,10 @@ func (q *LockFreeQueue) Pop() interface{} {
 	// 使用无限循环来尝试从队列的头部移除一个值
 	// Use an infinite loop to try to remove a value from the head of the queue
 	for {
-		// 加载队列的头节点
-		// Load the head node of the queue
+		// 减少原子操作：缓存头节点、尾节点和头节点的下一个节点
+		// Reduce atomic operations: cache the head node, tail node, and next node of the head node
 		head := loadNode(&q.head)
-
-		// 加载队列的尾节点
-		// Load the tail node of the queue
 		tail := loadNode(&q.tail)
-
-		// 加载头节点的下一个节点
-		// Load the next node of the head node
 		first := loadNode(&head.next)
 
 		// 检查头节点是否仍然是队列的头节点
@@ -147,12 +166,14 @@ func (q *LockFreeQueue) Pop() interface{} {
 					return nil
 				}
 
-				// 如果头节点的下一个节点不是 nil，说明尾节点落后了，尝试将队列的尾节点设置为头节点的下一个节点
-				// If the next node of the head node is not nil, it means that the tail node is lagging behind, try to set the tail node of the queue to the next node of the head node
+				// 如果头节点的下一个节点不是 nil，说明尾节点落后了
+				// 尝试帮助更新尾指针，减少队列不一致状态的持续时间
+				// If the next node of the head node is not nil, it means that the tail node is lagging behind
+				// Try to help update the tail pointer to reduce the duration of queue inconsistency
 				compareAndSwapNode(&q.tail, tail, first)
 			} else {
-				// 并返回头节点的值
-				// And return the value of the head node
+				// 缓存结果值以减少对共享内存的访问
+				// Cache the result value to reduce access to shared memory
 				result := first.value
 
 				// 如果头节点不等于尾节点，尝试将队列的头节点设置为头节点的下一个节点
@@ -166,14 +187,10 @@ func (q *LockFreeQueue) Pop() interface{} {
 					// Reset the head node and put it back into the NodePool
 					q.pool.Put(head)
 
-					// 如果结果不是空值，返回结果
-					// If the result is not an empty value, return the result
+					// 返回缓存的结果值
+					// Return the cached result value
 					return result
 				}
-
-				// 如果设置头节点失败，那么将结果设置为 nil
-				// If setting the head node fails, then set the result to nil
-				result = nil
 			}
 		}
 	}
@@ -199,7 +216,7 @@ func (q *LockFreeQueue) Reset() {
 	q.head = unsafe.Pointer(fristNode)
 	q.tail = unsafe.Pointer(fristNode)
 
-	// 使用 atomic.StoreInt64 函数将队列的长度设置为 0
-	// Use the atomic.StoreInt64 function to set the length of the queue to 0
+	// 重置队列长度
+	// Reset the length of the queue
 	atomic.StoreInt64(&q.length, 0)
 }

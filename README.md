@@ -205,7 +205,57 @@ func main() {
 }
 ```
 
-## 3. Custom Queue
+## 3. Heartbeat and Idle Timeout
+
+`LAW` allows you to configure the heartbeat interval and idle timeout for the writer. The heartbeat interval determines how often the writer checks for new data, and the idle timeout determines how long the writer waits before flushing the buffer when there's no new data.
+
+> [!TIP]
+>
+> -   The default heartbeat interval is `500ms`, meaning the writer checks for new data every 500 milliseconds.
+> -   The default idle timeout is `5s`, meaning the writer waits for 5 seconds of inactivity before flushing the buffer.
+>
+> You can use the `WithHeartbeatInterval` and `WithIdleTimeout` methods to customize these values.
+
+### Example
+
+```go
+package main
+
+import (
+	"os"
+	"time"
+	"strconv"
+
+	law "github.com/shengyanli1982/law"
+)
+
+func main() {
+	// 创建一个新的配置，并设置心跳间隔和闲置超时
+	// Create a new configuration and set the heartbeat interval and idle timeout
+	conf := NewConfig().
+		WithHeartbeatInterval(200 * time.Millisecond).
+		WithIdleTimeout(3 * time.Second)
+
+	// 使用 os.Stdout 和配置创建一个新的 WriteAsyncer 实例
+	// Create a new WriteAsyncer instance using os.Stdout and the configuration
+	w := NewWriteAsyncer(os.Stdout, conf)
+	// 使用 defer 语句确保在 main 函数退出时停止 WriteAsyncer
+	// Use a defer statement to ensure that WriteAsyncer is stopped when the main function exits
+	defer w.Stop()
+
+	// 循环 10 次，每次都将一个数字写入 WriteAsyncer
+	// Loop 10 times, each time write a number to WriteAsyncer
+	for i := 0; i < 10; i++ {
+		_, _ = w.Write([]byte(strconv.Itoa(i))) // 将当前的数字写入 WriteAsyncer
+	}
+
+	// 等待 1 秒，以便我们可以看到 WriteAsyncer 的输出
+	// Wait for 1 second so we can see the output of WriteAsyncer
+	time.Sleep(time.Second)
+}
+```
+
+## 4. Custom Queue
 
 `LAW` provides the flexibility to customize the queue used for storing log data. You have the option to implement your own queue and pass it to the writer during initialization.
 
