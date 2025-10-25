@@ -67,11 +67,11 @@ func NewBufferPool() *BufferPool {
 // Get 是一个方法，它从 BufferPool 获取一个合适大小的缓冲区
 // 如果指定了预期大小，会尝试返回合适容量的缓冲区
 func (p *BufferPool) Get() *bytes.Buffer {
-	return p.getWithHint(0)
+	return p.GetWithHint(0)
 }
 
-// getWithHint 根据大小提示获取适当的缓冲区
-func (p *BufferPool) getWithHint(sizeHint int) *bytes.Buffer {
+// GetWithHint 根据大小提示获取适当的缓冲区
+func (p *BufferPool) GetWithHint(sizeHint int) *bytes.Buffer {
 	// 更新统计信息
 	p.stats.totalCalls.Add(1)
 
