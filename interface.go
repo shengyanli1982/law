@@ -21,9 +21,12 @@ type emptyCallback struct{}
 // OnWriteFailed 空回调的写入失败处理方法（无操作）
 func (c *emptyCallback) OnWriteFailed([]byte, error) {}
 
-// newEmptyCallback 创建新的空回调实例
+// defaultEmptyCallback 包级私有单例
+var defaultEmptyCallback = &emptyCallback{}
+
+// newEmptyCallback 返回空回调单例
 func newEmptyCallback() Callback {
-	return &emptyCallback{}
+	return defaultEmptyCallback
 }
 
 // Queue 定义了队列接口

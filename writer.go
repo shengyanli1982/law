@@ -2,7 +2,6 @@ package law
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/shengyanli1982/law/internal/poller"
 	wr "github.com/shengyanli1982/law/internal/writer"
 )
 
@@ -25,6 +25,7 @@ type WriteAsyncer struct {
 	config         *Config            // 配置信息
 	writer         io.Writer          // 底层写入器
 	bufferedWriter *bufio.Writer      // 带缓冲的写入器
+	poller         *poller.Poller     // 轮询器组件
 	timer          atomic.Int64       // 计时器
 	once           sync.Once          // 确保只执行一次的控制器
 	ctx            context.Context    // 上下文
@@ -63,8 +64,20 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	wa.state.SetExecuteAt(time.Now().UnixMilli())
 	wa.state.SetRunning(true)
 
-	wa.wg.Add(1) // 只需要一个goroutine，减少了一个goroutine
-	go wa.poller()
+	// 创建并启动Poller组件
+	wa.poller = poller.NewPoller(&poller.Config{
+		Queue:             conf.queue,
+		Writer:            wa.bufferedWriter,
+		Callback:          conf.callback,
+		State:             wa.state,
+		BufferPool:        wa.bufferpool,
+		Timer:             &wa.timer,
+		HeartbeatInterval: conf.heartbeatInterval,
+		IdleTimeout:       conf.idleTimeout,
+	})
+
+	wa.wg.Add(1)
+	go wa.poller.Run(wa.ctx, &wa.wg)
 
 	return wa
 }
@@ -75,7 +88,7 @@ func (wa *WriteAsyncer) Stop() {
 		wa.state.SetRunning(false)
 		wa.cancel()
 		wa.wg.Wait()
-		wa.cleanQueueToWriter()
+		wa.poller.CleanQueue()
 		wa.bufferedWriter.Flush()
 		wa.bufferedWriter.Reset(io.Discard)
 	})
@@ -113,9 +126,17 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		wa.avgSize.Store(newAvg)
 	}
 
-	// 获取大小合适的缓冲区
-	buff := wa.bufferpool.Get()
-	buff.Grow(l)
+	// 获取大小合适的缓冲区，使用EMA统计预测最佳大小
+	sizeHint := int(wa.avgSize.Load())
+	if sizeHint == 0 {
+		sizeHint = l
+	}
+	buff := wa.bufferpool.GetWithHint(sizeHint)
+
+	// 只在容量不足时扩容
+	if buff.Cap() < l {
+		buff.Grow(l - buff.Cap())
+	}
 
 	if n, err = buff.Write(p); err != nil {
 		wa.bufferpool.Put(buff)
@@ -124,108 +145,4 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 
 	wa.config.queue.Push(buff)
 	return l, nil
-}
-
-// flushBufferedWriter 刷新缓冲的写入器
-func (wa *WriteAsyncer) flushBufferedWriter(content []byte) (int, error) {
-	sizeOfContent := len(content)
-	if sizeOfContent == 0 {
-		return 0, nil
-	}
-
-	// 如果内容大小超过可用空间且缓冲区非空，则先刷新
-	if sizeOfContent > wa.bufferedWriter.Available() && wa.bufferedWriter.Buffered() > 0 {
-		if err := wa.bufferedWriter.Flush(); err != nil {
-			return 0, err
-		}
-	}
-
-	// 如果内容大小超过缓冲区大小，直接写入
-	if sizeOfContent >= wa.config.buffSize {
-		return wa.writer.Write(content)
-	}
-
-	return wa.bufferedWriter.Write(content)
-}
-
-// poller 轮询器，处理写入请求和心跳检查
-func (wa *WriteAsyncer) poller() {
-	// 使用配置的心跳间隔，而不是硬编码值
-	heartbeat := time.NewTicker(wa.config.heartbeatInterval)
-
-	// 当前时间，减少系统调用
-	var now int64
-
-	// 更新计时器时间，每秒更新一次
-	timeUpdateTicker := time.NewTicker(time.Second)
-	now = time.Now().UnixMilli() // 初始化当前时间
-	wa.timer.Store(now)
-
-	defer func() {
-		timeUpdateTicker.Stop()
-		heartbeat.Stop()
-		wa.wg.Done()
-	}()
-
-	for {
-		// 首先处理队列中的所有元素，优先级最高
-		for {
-			if element := wa.config.queue.Pop(); element != nil {
-				wa.executeFunc(element.(*bytes.Buffer))
-				continue
-			}
-			break // 队列为空时退出内循环
-		}
-
-		// 使用select处理心跳和上下文
-		select {
-		case <-wa.ctx.Done():
-			return
-
-		case <-heartbeat.C:
-			// 检查是否需要刷新缓冲区
-			if wa.bufferedWriter.Buffered() > 0 {
-				// 计算闲置时间
-				now = wa.timer.Load()
-				if (now - wa.state.GetExecuteAt()) >= wa.config.idleTimeout.Milliseconds() {
-					if err := wa.bufferedWriter.Flush(); err != nil {
-						wa.config.callback.OnWriteFailed(nil, err)
-					}
-					wa.state.SetExecuteAt(now)
-				}
-			}
-
-		case <-timeUpdateTicker.C:
-			// 更新当前时间
-			now = time.Now().UnixMilli()
-			wa.timer.Store(now)
-		}
-	}
-}
-
-// executeFunc 执行写入操作
-func (wa *WriteAsyncer) executeFunc(buff *bytes.Buffer) {
-	wa.state.SetExecuteAt(wa.timer.Load())
-	content := buff.Bytes()
-
-	if _, err := wa.flushBufferedWriter(content); err != nil {
-		// 只在错误发生且回调函数存在时进行内存分配和复制
-		if wa.config.callback != nil {
-			// 直接使用原始buffer的内容作为回调参数，避免额外的内存分配
-			wa.config.callback.OnWriteFailed(content, err)
-		}
-	}
-
-	wa.bufferpool.Put(buff)
-}
-
-// cleanQueueToWriter 清理队列中的所有内容到写入器
-func (wa *WriteAsyncer) cleanQueueToWriter() {
-	for {
-		elem := wa.config.queue.Pop()
-		if elem == nil {
-			break
-		}
-		wa.executeFunc(elem.(*bytes.Buffer))
-	}
 }
