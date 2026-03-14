@@ -28,7 +28,7 @@ type Poller struct {
 	writer            *bufio.Writer  // 带缓冲的写入器
 	callback          Callback       // 错误回调
 	hasCallback       bool           // 缓存callback是否存在
-	state             *wr.Status     // 状态管理器
+	executeAt         int64          // 上次执行时间（仅poller协程读写）
 	bufferpool        *wr.BufferPool // 缓冲池
 	timer             *atomic.Int64  // 计时器（共享）
 	heartbeatInterval time.Duration  // 心跳间隔
@@ -40,7 +40,6 @@ type Config struct {
 	Queue             Queue          // 队列实现
 	Writer            *bufio.Writer  // 带缓冲的写入器
 	Callback          Callback       // 错误回调
-	State             *wr.Status     // 状态管理器
 	BufferPool        *wr.BufferPool // 缓冲池
 	Timer             *atomic.Int64  // 计时器
 	HeartbeatInterval time.Duration  // 心跳间隔
@@ -54,7 +53,6 @@ func NewPoller(cfg *Config) *Poller {
 		writer:            cfg.Writer,
 		callback:          cfg.Callback,
 		hasCallback:       cfg.Callback != nil,
-		state:             cfg.State,
 		bufferpool:        cfg.BufferPool,
 		timer:             cfg.Timer,
 		heartbeatInterval: cfg.HeartbeatInterval,
@@ -71,6 +69,7 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 	// 初始化计时器
 	now := time.Now().UnixMilli()
 	p.timer.Store(now)
+	p.executeAt = now
 
 	defer func() {
 		ticker.Stop()
@@ -105,13 +104,13 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 			// 心跳检查：如果缓冲区有数据且超过空闲超时时间，则刷新
 			if p.writer.Buffered() > 0 {
 				cachedNow := p.timer.Load()
-				if (cachedNow - p.state.GetExecuteAt()) >= p.idleTimeout.Milliseconds() {
+				if (cachedNow - p.executeAt) >= p.idleTimeout.Milliseconds() {
 					if err := p.writer.Flush(); err != nil {
 						if p.hasCallback {
 							p.callback.OnWriteFailed(nil, err)
 						}
 					}
-					p.state.SetExecuteAt(cachedNow)
+					p.executeAt = cachedNow
 				}
 			}
 		}
@@ -120,7 +119,7 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 // executeFunc 执行写入操作
 func (p *Poller) executeFunc(buff *bytes.Buffer) {
-	p.state.SetExecuteAt(p.timer.Load())
+	p.executeAt = p.timer.Load()
 	content := buff.Bytes()
 
 	if _, err := p.flushBufferedWriter(content); err != nil {
