@@ -25,3 +25,5 @@ go.work.sum
 .idea/
 .DS_Store
 .cursorrules
+.serena
+benchmark/
