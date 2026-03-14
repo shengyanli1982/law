@@ -3,7 +3,7 @@ package law
 import (
 	"time"
 
-	lf "github.com/shengyanli1982/law/internal/lockfree"
+	iq "github.com/shengyanli1982/law/internal/queue"
 )
 
 // DefaultBufferSize 默认缓冲区大小
@@ -29,7 +29,7 @@ func NewConfig() *Config {
 	return &Config{
 		buffSize:          DefaultBufferSize,
 		callback:          newEmptyCallback(),
-		queue:             lf.NewLockFreeQueue(),
+		queue:             iq.NewMPSCQueue(),
 		heartbeatInterval: DefaultHeartbeatInterval,
 		idleTimeout:       DefaultIdleTimeout,
 	}
@@ -80,7 +80,7 @@ func isConfigValid(conf *Config) *Config {
 			conf.callback = newEmptyCallback()
 		}
 		if conf.queue == nil {
-			conf.queue = lf.NewLockFreeQueue()
+			conf.queue = iq.NewMPSCQueue()
 		}
 		if conf.heartbeatInterval <= 0 {
 			conf.heartbeatInterval = DefaultHeartbeatInterval

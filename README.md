@@ -10,6 +10,7 @@ English | [中文](./README_CN.md)
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/law)](https://goreportcard.com/report/github.com/shengyanli1982/law)
 [![Build Status](https://github.com/shengyanli1982/law/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/law/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/law.svg)](https://pkg.go.dev/github.com/shengyanli1982/law)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shengyanli1982/law)
 
 # Introduction
 
@@ -23,17 +24,11 @@ With just two APIs, `Write` and `Stop`, `LAW` offers simplicity and ease of use.
 
 # Advantages
 
--   Simple and user-friendly
--   No external dependencies required
--   High performance with minimal memory usage
--   Optimized for efficient garbage collection
--   Supports customizable action callback functions
-
-# Design
-
-Following the design, the architecture UML diagram for `LAW` is shown below:
-
-![design](assets/architecture.png)
+- Simple and user-friendly
+- No external dependencies required
+- High performance with minimal memory usage
+- Optimized for efficient garbage collection
+- Supports customizable action callback functions
 
 # Installation
 
@@ -163,8 +158,8 @@ func main() {
 
 > [!TIP]
 >
-> -   The default capacity of the `deque` is unlimited, meaning it can hold an unlimited amount of log data.
-> -   The default capacity of the `bufferIo` is `2k`, meaning it can hold up to `2k` log data. If the buffer becomes full, `LAW` will automatically flush the buffer to the `io.Writer`. `2k` is a recommended choice, but you can customize it.
+> - The default capacity of the `deque` is unlimited, meaning it can hold an unlimited amount of log data.
+> - The default capacity of the `bufferIo` is `2k`, meaning it can hold up to `2k` log data. If the buffer becomes full, `LAW` will automatically flush the buffer to the `io.Writer`. `2k` is a recommended choice, but you can customize it.
 >
 > You can use the `WithBufferSize` method to adjust the size of the bufferIo.
 
@@ -211,8 +206,8 @@ func main() {
 
 > [!TIP]
 >
-> -   The default heartbeat interval is `500ms`, meaning the writer checks for new data every 500 milliseconds.
-> -   The default idle timeout is `5s`, meaning the writer waits for 5 seconds of inactivity before flushing the buffer.
+> - The default heartbeat interval is `500ms`, meaning the writer checks for new data every 500 milliseconds.
+> - The default idle timeout is `5s`, meaning the writer waits for 5 seconds of inactivity before flushing the buffer.
 >
 > You can use the `WithHeartbeatInterval` and `WithIdleTimeout` methods to customize these values.
 
@@ -261,7 +256,7 @@ func main() {
 
 > [!TIP]
 >
-> By default, `LAW` uses a `lockfree` queue that stores log data in a chain of byte buffers.
+> By default, `LAW` uses an `MPSC` queue built on `mutex/cond + linked list + sync.Pool`.
 >
 > You can use the `WithQueue` method to set a custom queue.
 
@@ -535,54 +530,20 @@ $ go run demo.go
 
 # Benchmark
 
-> [!IMPORTANT]
-> The benchmark test results are provided for reference only. Please note that different hardware environments may yield different results.
-
-### Environment
-
--   **OS**: macOS Big Sur 11.7.10
--   **CPU**: 3.3 GHz 8-Core Intel XEON E5 4627v2
--   **Memory**: 32 GB 1866 MHz DDR3
--   **Go**: go1.20.11 darwin/amd64
-
-## 1. Base
-
-The performance of `LAW` has been optimized and improved compared to `BlackHoleWriter` and `zapcore.AddSync(BlackHoleWriter)` since version `v0.1.3`.
-
-**Before**
-
 ```bash
-# go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
-
-goos: darwin
+$ go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
+goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/law/benchmark
-cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-8           	1000000000	         0.2871 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2489 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriter-8             	 3357697	       351.7 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-8     	21949550	        59.52 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-8            	  481237	      2133 ns/op	     932 B/op	       1 allocs/op
-BenchmarkZapAsyncWriterParallel-8    	 1453645	       865.7 ns/op	    2074 B/op	       3 allocs/op
-```
-
-**After**
-
-```bash
-# go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
-
-goos: darwin
-goarch: amd64
-pkg: github.com/shengyanli1982/law/benchmark
-cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-8           	1000000000	         0.2905 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2557 ns/op	       0 B/op	       0 allocs/op
-BenchmarkLogAsyncWriter-8            	 4515822	       229.1 ns/op	      61 B/op	       3 allocs/op
-BenchmarkLogAsyncWriterParallel-8    	 4604298	       251.1 ns/op	      61 B/op	       3 allocs/op
-BenchmarkZapSyncWriter-8             	 3294104	       352.9 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-8     	23504499	        59.52 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-8            	 2173760	       551.0 ns/op	      56 B/op	       2 allocs/op
-BenchmarkZapAsyncWriterParallel-8    	 4663755	       258.1 ns/op	      56 B/op	       2 allocs/op
+cpu: 12th Gen Intel(R) Core(TM) i5-12400F
+BenchmarkBlackHoleWriter-12             1000000000               0.1278 ns/op          0 B/op          0 allocs/op
+BenchmarkBlackHoleWriterParallel-12     1000000000               0.04558 ns/op         0 B/op          0 allocs/op
+BenchmarkLogAsyncWriter-12               6480730               212.0 ns/op           122 B/op          1 allocs/op
+BenchmarkLogAsyncWriterParallel-12       4032622               276.7 ns/op           260 B/op          2 allocs/op
+BenchmarkZapSyncWriter-12                9245127               128.7 ns/op             0 B/op          0 allocs/op
+BenchmarkZapSyncWriterParallel-12       52751426                26.14 ns/op            0 B/op          0 allocs/op
+BenchmarkZapAsyncWriter-12               3765366               311.0 ns/op           129 B/op          1 allocs/op
+BenchmarkZapAsyncWriterParallel-12       3039962               375.1 ns/op           234 B/op          2 allocs/op
 ```
 
 `LAW` employs a `double buffer` strategy for logging, which may slightly impact performance compared to `zapcore.AddSync(BlackHoleWriter)`. This is because `zap`, when integrated with `LAW`, utilizes zap's writer buffer indirectly. `zap` passes the data to `LAW` through a `deque` before flushing it to the `io.Writer (BlackHoleWriter)`. As a result, the performance of `LAW` is the sum of `BenchmarkZapSyncWriter` and `BenchmarkLogAsyncWriter`, equivalent to `BenchmarkZapAsyncWriter`.
