@@ -33,10 +33,6 @@ type WriteAsyncer struct {
 	wg             sync.WaitGroup     // 等待组
 	state          *wr.Status         // 状态管理器
 	bufferpool     *wr.BufferPool     // 缓冲池
-
-	// 缓存的大小统计，用于预测分配
-	avgSize atomic.Int64 // 平均大小
-	maxSize atomic.Int64 // 最大大小
 }
 
 // NewWriteAsyncer 创建新的异步写入器
@@ -56,8 +52,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		once:           sync.Once{},
 		wg:             sync.WaitGroup{},
 		bufferpool:     wr.NewBufferPool(),
-		avgSize:        atomic.Int64{},
-		maxSize:        atomic.Int64{},
 	}
 
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
@@ -109,29 +103,8 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
-	// 更新最大大小统计
-	currentMax := wa.maxSize.Load()
-	if int64(l) > currentMax {
-		wa.maxSize.Store(int64(l))
-	}
-
-	// 使用指数移动平均法(EMA)计算平均大小
-	// 权重: 历史数据0.8, 新数据0.2
-	avgSize := wa.avgSize.Load()
-	if avgSize == 0 {
-		wa.avgSize.Store(int64(l))
-	} else {
-		// EMA = currentAvg * 0.8 + newValue * 0.2
-		newAvg := (avgSize * 8 / 10) + (int64(l) * 2 / 10)
-		wa.avgSize.Store(newAvg)
-	}
-
-	// 获取大小合适的缓冲区，使用EMA统计预测最佳大小
-	sizeHint := int(wa.avgSize.Load())
-	if sizeHint == 0 {
-		sizeHint = l
-	}
-	buff := wa.bufferpool.GetWithHint(sizeHint)
+	// 直接用本次写入长度作为提示，避免热路径原子统计开销
+	buff := wa.bufferpool.GetWithHint(l)
 
 	// 只在容量不足时扩容
 	if buff.Cap() < l {
