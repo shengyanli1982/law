@@ -8,6 +8,9 @@ import (
 
 // 定义不同大小的缓冲区类别
 const (
+	// 超小缓冲区大小 (<= 128B)
+	tinyBufferSize = 128
+
 	// 小缓冲区大小 (<= 1KB)
 	smallBufferSize = 1024
 
@@ -29,6 +32,7 @@ type BufferSizeStats struct {
 
 // BufferPool 是一个结构体，它包含多个同步池以支持不同大小的缓冲区
 type BufferPool struct {
+	tinyPool   *sync.Pool      // 超小缓冲区池（<= 128B）
 	smallPool  *sync.Pool      // 小缓冲区池（<= 1KB）
 	mediumPool *sync.Pool      // 中等缓冲区池（<= 8KB）
 	largePool  *sync.Pool      // 大缓冲区池（<= 32KB）
@@ -38,6 +42,13 @@ type BufferPool struct {
 // NewBufferPool 是一个函数，它创建并返回一个新的 BufferPool
 func NewBufferPool() *BufferPool {
 	return &BufferPool{
+		// 创建超小缓冲区池
+		tinyPool: &sync.Pool{
+			New: func() interface{} {
+				return bytes.NewBuffer(make([]byte, 0, tinyBufferSize))
+			},
+		},
+
 		// 创建小缓冲区池
 		smallPool: &sync.Pool{
 			New: func() interface{} {
@@ -72,22 +83,17 @@ func (p *BufferPool) Get() *bytes.Buffer {
 
 // GetWithHint 根据大小提示获取适当的缓冲区
 func (p *BufferPool) GetWithHint(sizeHint int) *bytes.Buffer {
-	// 更新统计信息
-	p.stats.totalCalls.Add(1)
-
 	// 根据大小提示选择合适的缓冲区池
-	if sizeHint <= smallBufferSize {
-		p.stats.smallCount.Add(1)
+	if sizeHint <= tinyBufferSize {
+		return p.tinyPool.Get().(*bytes.Buffer)
+	} else if sizeHint <= smallBufferSize {
 		return p.smallPool.Get().(*bytes.Buffer)
 	} else if sizeHint <= mediumBufferSize {
-		p.stats.mediumCount.Add(1)
 		return p.mediumPool.Get().(*bytes.Buffer)
 	} else if sizeHint <= largeBufferSize {
-		p.stats.largeCount.Add(1)
 		return p.largePool.Get().(*bytes.Buffer)
 	} else {
 		// 对于超大缓冲区，直接创建新的，不放入池中
-		p.stats.overSize.Add(1)
 		return bytes.NewBuffer(make([]byte, 0, sizeHint))
 	}
 }
@@ -104,7 +110,9 @@ func (p *BufferPool) Put(e *bytes.Buffer) {
 
 	// 根据缓冲区容量决定放入哪个池
 	cap := e.Cap()
-	if cap <= smallBufferSize {
+	if cap <= tinyBufferSize {
+		p.tinyPool.Put(e)
+	} else if cap <= smallBufferSize {
 		p.smallPool.Put(e)
 	} else if cap <= mediumBufferSize {
 		p.mediumPool.Put(e)

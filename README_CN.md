@@ -9,6 +9,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/law)](https://goreportcard.com/report/github.com/shengyanli1982/law)
 [![Build Status](https://github.com/shengyanli1982/law/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/law/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/shengyanli1982/law.svg)](https://pkg.go.dev/github.com/shengyanli1982/law)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shengyanli1982/law)
 
 # 简介
 
@@ -22,17 +23,11 @@
 
 # 优势
 
--   简单易用
--   无第三方依赖
--   高性能且低内存占用
--   优化了垃圾回收
--   支持操作回调函数
-
-# 设计
-
-根据设计，`LAW` 的架构 UML 图如下所示：
-
-![design](assets/architecture.png)
+- 简单易用
+- 无第三方依赖
+- 高性能且低内存占用
+- 优化了垃圾回收
+- 支持操作回调函数
 
 # 安装
 
@@ -162,8 +157,8 @@ func main() {
 
 > [!TIP]
 >
-> -   `deque` 的默认容量是无限的，意味着它可以容纳无限量的日志数据。
-> -   `bufferIo` 的默认容量是 `2k`，意味着它可以容纳最多 `2k` 的日志数据。如果缓冲区已满，`LAW` 将自动将缓冲区刷新到 `io.Writer`。`2k` 是一个推荐的选择，但您可以自定义它。
+> - `deque` 的默认容量是无限的，意味着它可以容纳无限量的日志数据。
+> - `bufferIo` 的默认容量是 `2k`，意味着它可以容纳最多 `2k` 的日志数据。如果缓冲区已满，`LAW` 将自动将缓冲区刷新到 `io.Writer`。`2k` 是一个推荐的选择，但您可以自定义它。
 >
 > 您可以使用 `WithBufferSize` 方法来更改缓冲区的大小。
 
@@ -210,8 +205,8 @@ func main() {
 
 > [!TIP]
 >
-> -   默认的心跳间隔是 `500ms`，意味着写入器每 500 毫秒检查一次新数据。
-> -   默认的闲置超时是 `5s`，意味着写入器在没有活动 5 秒后刷新缓冲区。
+> - 默认的心跳间隔是 `500ms`，意味着写入器每 500 毫秒检查一次新数据。
+> - 默认的闲置超时是 `5s`，意味着写入器在没有活动 5 秒后刷新缓冲区。
 >
 > 您可以使用 `WithHeartbeatInterval` 和 `WithIdleTimeout` 方法来自定义这些值。
 
@@ -260,7 +255,7 @@ func main() {
 
 > [!TIP]
 >
-> 默认情况下，`LAW` 使用一个 `lockfree` 队列，将日志数据存储在一系列字节缓冲区中。
+> 默认情况下，`LAW` 使用 `MPSC` 队列（`mutex/cond + linked list + sync.Pool`）。
 >
 > 您可以使用 `WithQueue` 方法来设置自定义队列。
 
@@ -532,56 +527,22 @@ $ go run demo.go
 {"level":"info","i":9,"time":"2023-12-16T12:39:45+08:00","message":"hello"}
 ```
 
-# 基准测试
-
-> [!IMPORTANT]
-> 基准测试结果仅供参考。请注意，不同的硬件环境可能会产生不同的结果。
-
-### 环境
-
--   **操作系统**: macOS Big Sur 11.7.10
--   **CPU**: 3.3 GHz 8-Core Intel XEON E5 4627v2
--   **内存**: 32 GB 1866 MHz DDR3
--   **Go 版本**: go1.20.11 darwin/amd64
-
-## 1. 基准测试前
-
-自版本 `v0.1.3` 起，`LAW` 的性能已经优化和改进，相比于 `BlackHoleWriter` 和 `zapcore.AddSync(BlackHoleWriter)`。
-
-**在此之前**
+# 性能测试
 
 ```bash
-# go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
-
-goos: darwin
+$ go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
+goos: windows
 goarch: amd64
 pkg: github.com/shengyanli1982/law/benchmark
-cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-8           	1000000000	         0.2871 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2489 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriter-8             	 3357697	       351.7 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-8     	21949550	        59.52 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-8            	  481237	      2133 ns/op	     932 B/op	       1 allocs/op
-BenchmarkZapAsyncWriterParallel-8    	 1453645	       865.7 ns/op	    2074 B/op	       3 allocs/op
-```
-
-**在此之后**
-
-```bash
-# go test -benchmem -run=^$ -bench ^Benchmark* github.com/shengyanli1982/law/benchmark
-
-goos: darwin
-goarch: amd64
-pkg: github.com/shengyanli1982/law/benchmark
-cpu: Intel(R) Xeon(R) CPU E5-4627 v2 @ 3.30GHz
-BenchmarkBlackHoleWriter-8           	1000000000	         0.2905 ns/op	       0 B/op	       0 allocs/op
-BenchmarkBlackHoleWriterParallel-8   	1000000000	         0.2557 ns/op	       0 B/op	       0 allocs/op
-BenchmarkLogAsyncWriter-8            	 4515822	       229.1 ns/op	      61 B/op	       3 allocs/op
-BenchmarkLogAsyncWriterParallel-8    	 4604298	       251.1 ns/op	      61 B/op	       3 allocs/op
-BenchmarkZapSyncWriter-8             	 3294104	       352.9 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapSyncWriterParallel-8     	23504499	        59.52 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapAsyncWriter-8            	 2173760	       551.0 ns/op	      56 B/op	       2 allocs/op
-BenchmarkZapAsyncWriterParallel-8    	 4663755	       258.1 ns/op	      56 B/op	       2 allocs/op
+cpu: 12th Gen Intel(R) Core(TM) i5-12400F
+BenchmarkBlackHoleWriter-12             1000000000               0.1278 ns/op          0 B/op          0 allocs/op
+BenchmarkBlackHoleWriterParallel-12     1000000000               0.04558 ns/op         0 B/op          0 allocs/op
+BenchmarkLogAsyncWriter-12               6480730               212.0 ns/op           122 B/op          1 allocs/op
+BenchmarkLogAsyncWriterParallel-12       4032622               276.7 ns/op           260 B/op          2 allocs/op
+BenchmarkZapSyncWriter-12                9245127               128.7 ns/op             0 B/op          0 allocs/op
+BenchmarkZapSyncWriterParallel-12       52751426                26.14 ns/op            0 B/op          0 allocs/op
+BenchmarkZapAsyncWriter-12               3765366               311.0 ns/op           129 B/op          1 allocs/op
+BenchmarkZapAsyncWriterParallel-12       3039962               375.1 ns/op           234 B/op          2 allocs/op
 ```
 
 `LAW`采用了双缓冲策略进行日志记录，与 `zapcore.AddSync(BlackHoleWriter)` 相比，这可能会稍微影响性能。这是因为当 `LAW` 与 `zap` 集成时，它间接地利用了 zap 的写入缓冲区。`zap` 通过一个 `deque` 将数据传递给 `LAW`，然后将其刷新到 `io.Writer`（`BlackHoleWriter`）。因此，`LAW`的性能是 `BenchmarkZapSyncWriter` 和 `BenchmarkLogAsyncWriter` 的总和，相当于 `BenchmarkZapAsyncWriter`。
