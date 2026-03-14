@@ -8,7 +8,6 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/shengyanli1982/law/internal/poller"
 	wr "github.com/shengyanli1982/law/internal/writer"
@@ -55,7 +54,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	}
 
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
-	wa.state.SetExecuteAt(time.Now().UnixMilli())
 	wa.state.SetRunning(true)
 
 	// 创建并启动Poller组件
@@ -63,7 +61,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		Queue:             conf.queue,
 		Writer:            wa.bufferedWriter,
 		Callback:          conf.callback,
-		State:             wa.state,
 		BufferPool:        wa.bufferpool,
 		Timer:             &wa.timer,
 		HeartbeatInterval: conf.heartbeatInterval,
