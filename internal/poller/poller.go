@@ -11,42 +11,42 @@ import (
 	wr "github.com/shengyanli1982/law/internal/writer"
 )
 
-// Queue 定义了队列接口
-type Queue interface {
-	Push(value interface{})
-	Pop() interface{}
+// Queue 定义了内部轮询器使用的类型化队列接口。
+type Queue[T any] interface {
+	Push(value T)
+	Pop() T
 }
 
-// Callback 定义了回调接口
+// Callback 定义了回调接口。
 type Callback interface {
 	OnWriteFailed(content []byte, reason error)
 }
 
-// Poller 轮询器，负责异步处理队列中的写入请求
+// Poller 轮询器，负责异步处理队列中的写入请求。
 type Poller struct {
-	queue             Queue          // 无锁队列
-	writer            *bufio.Writer  // 带缓冲的写入器
-	callback          Callback       // 错误回调
-	hasCallback       bool           // 缓存callback是否存在
-	executeAt         int64          // 上次执行时间（仅poller协程读写）
-	bufferpool        *wr.BufferPool // 缓冲池
-	timer             *atomic.Int64  // 计时器（共享）
-	heartbeatInterval time.Duration  // 心跳间隔
-	idleTimeout       time.Duration  // 闲置超时
+	queue             Queue[*bytes.Buffer]
+	writer            *bufio.Writer
+	callback          Callback
+	hasCallback       bool
+	executeAt         int64
+	bufferpool        *wr.BufferPool
+	timer             *atomic.Int64
+	heartbeatInterval time.Duration
+	idleTimeout       time.Duration
 }
 
-// Config Poller配置
+// Config Poller配置。
 type Config struct {
-	Queue             Queue          // 队列实现
-	Writer            *bufio.Writer  // 带缓冲的写入器
-	Callback          Callback       // 错误回调
-	BufferPool        *wr.BufferPool // 缓冲池
-	Timer             *atomic.Int64  // 计时器
-	HeartbeatInterval time.Duration  // 心跳间隔
-	IdleTimeout       time.Duration  // 闲置超时
+	Queue             Queue[*bytes.Buffer]
+	Writer            *bufio.Writer
+	Callback          Callback
+	BufferPool        *wr.BufferPool
+	Timer             *atomic.Int64
+	HeartbeatInterval time.Duration
+	IdleTimeout       time.Duration
 }
 
-// NewPoller 创建新的轮询器
+// NewPoller 创建新的轮询器。
 func NewPoller(cfg *Config) *Poller {
 	return &Poller{
 		queue:             cfg.Queue,
@@ -60,13 +60,11 @@ func NewPoller(cfg *Config) *Poller {
 	}
 }
 
-// Run 启动轮询器，处理写入请求和心跳检查
+// Run 启动轮询器，处理写入请求和心跳检查。
 func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
-	// 使用单一ticker，合并心跳检查和时间更新逻辑
 	ticker := time.NewTicker(p.heartbeatInterval)
 	var tickCount int64
 
-	// 初始化计时器
 	now := time.Now().UnixMilli()
 	p.timer.Store(now)
 	p.executeAt = now
@@ -77,16 +75,14 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}()
 
 	for {
-		// 首先处理队列中的所有元素，优先级最高
 		for {
-			if element := p.queue.Pop(); element != nil {
-				p.executeFunc(element.(*bytes.Buffer))
-				continue
+			element := p.queue.Pop()
+			if element == nil {
+				break
 			}
-			break // 队列为空时退出内循环
+			p.executeFunc(element)
 		}
 
-		// 使用select处理ticker和上下文
 		select {
 		case <-ctx.Done():
 			return
@@ -94,14 +90,11 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 		case <-ticker.C:
 			tickCount++
 
-			// 每1秒更新时间缓存（heartbeatInterval为500ms时，每2次tick更新）
-			// 这样可以减少time.Now()的系统调用开销
 			if tickCount%(int64(time.Second/p.heartbeatInterval)) == 0 {
 				now = time.Now().UnixMilli()
 				p.timer.Store(now)
 			}
 
-			// 心跳检查：如果缓冲区有数据且超过空闲超时时间，则刷新
 			if p.writer.Buffered() > 0 {
 				cachedNow := p.timer.Load()
 				if (cachedNow - p.executeAt) >= p.idleTimeout.Milliseconds() {
@@ -117,15 +110,13 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-// executeFunc 执行写入操作
+// executeFunc 执行写入操作。
 func (p *Poller) executeFunc(buff *bytes.Buffer) {
 	p.executeAt = p.timer.Load()
 	content := buff.Bytes()
 
 	if _, err := p.flushBufferedWriter(content); err != nil {
-		// 只在错误发生且回调函数存在时调用回调
 		if p.hasCallback {
-			// 直接使用原始buffer的内容作为回调参数，避免额外的内存分配
 			p.callback.OnWriteFailed(content, err)
 		}
 	}
@@ -133,34 +124,29 @@ func (p *Poller) executeFunc(buff *bytes.Buffer) {
 	p.bufferpool.Put(buff)
 }
 
-// flushBufferedWriter 刷新缓冲的写入器
+// flushBufferedWriter 刷新缓冲写入器。
 func (p *Poller) flushBufferedWriter(content []byte) (int, error) {
 	sizeOfContent := len(content)
 	if sizeOfContent == 0 {
 		return 0, nil
 	}
 
-	// 如果内容大小超过可用空间且缓冲区非空，则先刷新
 	if sizeOfContent > p.writer.Available() && p.writer.Buffered() > 0 {
 		if err := p.writer.Flush(); err != nil {
 			return 0, err
 		}
 	}
 
-	// 如果内容大小超过缓冲区大小，直接写入底层writer
-	// 注意：这里需要通过反射或其他方式获取底层writer，暂时简化处理
-	// 实际上bufio.Writer没有直接访问底层writer的方法
-	// 我们依赖bufio.Writer的智能处理
 	return p.writer.Write(content)
 }
 
-// CleanQueue 清理队列中的所有内容
+// CleanQueue 清理队列中的所有内容。
 func (p *Poller) CleanQueue() {
 	for {
 		elem := p.queue.Pop()
 		if elem == nil {
 			break
 		}
-		p.executeFunc(elem.(*bytes.Buffer))
+		p.executeFunc(elem)
 	}
 }

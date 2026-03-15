@@ -29,7 +29,7 @@ func NewConfig() *Config {
 	return &Config{
 		buffSize:          DefaultBufferSize,
 		callback:          newEmptyCallback(),
-		queue:             iq.NewMPSCQueue(),
+		queue:             iq.NewBufferQueue(),
 		heartbeatInterval: DefaultHeartbeatInterval,
 		idleTimeout:       DefaultIdleTimeout,
 	}
@@ -80,7 +80,7 @@ func isConfigValid(conf *Config) *Config {
 			conf.callback = newEmptyCallback()
 		}
 		if conf.queue == nil {
-			conf.queue = iq.NewMPSCQueue()
+			conf.queue = iq.NewBufferQueue()
 		}
 		if conf.heartbeatInterval <= 0 {
 			conf.heartbeatInterval = DefaultHeartbeatInterval
