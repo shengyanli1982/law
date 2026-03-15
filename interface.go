@@ -1,5 +1,7 @@
 package law
 
+import "bytes"
+
 // Writer 定义了写入器接口
 type Writer interface {
 	// Write 写入数据，返回写入的字节数和可能的错误
@@ -32,8 +34,8 @@ func newEmptyCallback() Callback {
 // Queue 定义了队列接口
 type Queue interface {
 	// Push 将值推入队列
-	Push(value interface{})
+	Push(value *bytes.Buffer)
 
 	// Pop 从队列中取出值
-	Pop() interface{}
+	Pop() *bytes.Buffer
 }

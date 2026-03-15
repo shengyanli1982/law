@@ -11,8 +11,8 @@ namespace law {
 
     }
     interface Queue  {
-        + Push(value <font color=blue>interface</font>{})
-        + Pop() <font color=blue>interface</font>{}
+        + Push(value *bytes.Buffer)
+        + Pop() *bytes.Buffer
 
     }
     class WriteAsyncer << (S,Aquamarine) >> {
@@ -36,8 +36,8 @@ namespace law {
 
 namespace queue {
     class MPSCQueue << (S,Aquamarine) >> {
-        + Push(value <font color=blue>interface</font>{})
-        + Pop() <font color=blue>interface</font>{}
+        + Push(value *bytes.Buffer)
+        + Pop() *bytes.Buffer
         + Len() int
 
     }

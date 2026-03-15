@@ -34,31 +34,6 @@ func (fw *faultyWriter) Write(p []byte) (n int, err error) {
 	return 0, errorWriteFailed
 }
 
-type legacyQueue struct {
-	mu    sync.Mutex
-	items []interface{}
-}
-
-func (q *legacyQueue) Push(value interface{}) {
-	if value == nil {
-		return
-	}
-	q.mu.Lock()
-	q.items = append(q.items, value)
-	q.mu.Unlock()
-}
-
-func (q *legacyQueue) Pop() interface{} {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if len(q.items) == 0 {
-		return nil
-	}
-	value := q.items[0]
-	q.items = q.items[1:]
-	return value
-}
-
 func TestWriteAsyncer_Standard(t *testing.T) {
 	buff := bytes.NewBuffer(make([]byte, 0, 1024))
 
@@ -183,18 +158,6 @@ func TestWriteAsyncer_EdgeCases(t *testing.T) {
 
 		w.Stop()
 		w.Stop()
-	})
-
-	t.Run("legacy custom queue compatibility", func(t *testing.T) {
-		buff := bytes.NewBuffer(make([]byte, 0, 128))
-		conf := NewConfig().WithQueue(&legacyQueue{})
-		w := NewWriteAsyncer(buff, conf)
-
-		_, err := w.Write([]byte("legacy"))
-		assert.Nil(t, err)
-
-		w.Stop()
-		assert.Equal(t, "legacy", buff.String())
 	})
 }
 

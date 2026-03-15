@@ -2,10 +2,8 @@ package law
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -24,7 +22,7 @@ var (
 // WriteAsyncer 异步写入器结构体
 type WriteAsyncer struct {
 	config         *Config
-	queue          poller.Queue[*bytes.Buffer]
+	queue          Queue
 	writer         io.Writer
 	bufferedWriter *bufio.Writer
 	poller         *poller.Poller
@@ -37,51 +35,6 @@ type WriteAsyncer struct {
 	bufferpool     *wr.BufferPool
 }
 
-type bufferQueueProvider interface {
-	PushBuffer(value *bytes.Buffer)
-	PopBuffer() *bytes.Buffer
-}
-
-type typedQueueAdapter struct {
-	queue bufferQueueProvider
-}
-
-func (a *typedQueueAdapter) Push(value *bytes.Buffer) {
-	a.queue.PushBuffer(value)
-}
-
-func (a *typedQueueAdapter) Pop() *bytes.Buffer {
-	return a.queue.PopBuffer()
-}
-
-type legacyQueueAdapter struct {
-	queue Queue
-}
-
-func (a *legacyQueueAdapter) Push(value *bytes.Buffer) {
-	a.queue.Push(value)
-}
-
-func (a *legacyQueueAdapter) Pop() *bytes.Buffer {
-	value := a.queue.Pop()
-	if value == nil {
-		return nil
-	}
-
-	buff, ok := value.(*bytes.Buffer)
-	if !ok {
-		panic(fmt.Sprintf("law: custom queue pop type mismatch: got %T, want *bytes.Buffer or nil", value))
-	}
-	return buff
-}
-
-func newPollerQueue(queue Queue) poller.Queue[*bytes.Buffer] {
-	if typedQueue, ok := queue.(bufferQueueProvider); ok {
-		return &typedQueueAdapter{queue: typedQueue}
-	}
-	return &legacyQueueAdapter{queue: queue}
-}
-
 // NewWriteAsyncer 创建新的异步写入器
 func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	if writer == nil {
@@ -89,7 +42,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	}
 
 	conf = isConfigValid(conf)
-	queue := newPollerQueue(conf.queue)
+	queue := conf.queue
 
 	wa := &WriteAsyncer{
 		config:         conf,

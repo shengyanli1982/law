@@ -267,11 +267,11 @@ func main() {
 type Queue interface {
 	// Push 方法用于将值添加到队列中。
 	// The Push method is used to add a value to the queue.
-	Push(value interface{})
+	Push(value *bytes.Buffer)
 
 	// Pop 方法用于从队列中取出一个值。
 	// The Pop method is used to take a value out of the queue.
-	Pop() interface{}
+	Pop() *bytes.Buffer
 }
 ```
 

@@ -1,6 +1,7 @@
 package law
 
 import (
+	"bytes"
 	"time"
 
 	iq "github.com/shengyanli1982/law/internal/queue"
@@ -29,7 +30,7 @@ func NewConfig() *Config {
 	return &Config{
 		buffSize:          DefaultBufferSize,
 		callback:          newEmptyCallback(),
-		queue:             iq.NewBufferQueue(),
+		queue:             iq.NewMPSCQueue[*bytes.Buffer](),
 		heartbeatInterval: DefaultHeartbeatInterval,
 		idleTimeout:       DefaultIdleTimeout,
 	}
@@ -80,7 +81,7 @@ func isConfigValid(conf *Config) *Config {
 			conf.callback = newEmptyCallback()
 		}
 		if conf.queue == nil {
-			conf.queue = iq.NewBufferQueue()
+			conf.queue = iq.NewMPSCQueue[*bytes.Buffer]()
 		}
 		if conf.heartbeatInterval <= 0 {
 			conf.heartbeatInterval = DefaultHeartbeatInterval
