@@ -44,28 +44,28 @@ func NewBufferPool() *BufferPool {
 	return &BufferPool{
 		// 创建超小缓冲区池
 		tinyPool: &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, tinyBufferSize))
 			},
 		},
 
 		// 创建小缓冲区池
 		smallPool: &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, smallBufferSize))
 			},
 		},
 
 		// 创建中等缓冲区池
 		mediumPool: &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, mediumBufferSize))
 			},
 		},
 
 		// 创建大缓冲区池
 		largePool: &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, largeBufferSize))
 			},
 		},

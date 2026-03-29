@@ -11,7 +11,7 @@ import (
 )
 
 func TestMPSCQueue_Standard(t *testing.T) {
-	q := NewMPSCQueue()
+	q := NewMPSCQueue[int]()
 
 	for i := 0; i < 1000; i++ {
 		q.Push(i)
@@ -19,15 +19,14 @@ func TestMPSCQueue_Standard(t *testing.T) {
 
 	for i := 0; i < 1000; i++ {
 		v := q.Pop()
-		require.NotNilf(t, v, "dequeue returned nil at iteration %d", i)
-		require.Equalf(t, i, v.(int), "dequeue order mismatch at iteration %d", i)
+		require.Equalf(t, i, v, "dequeue order mismatch at iteration %d", i)
 	}
 
-	require.Nil(t, q.Pop(), "empty queue should return nil on pop")
+	require.Equal(t, 0, q.Pop(), "empty queue should return zero value on pop")
 }
 
 func TestMPSCQueue_WithLimits_BlockingPush(t *testing.T) {
-	q := NewMPSCQueueWithLimits(1, 0)
+	q := NewMPSCQueueWithLimits[int](1, 0)
 	q.Push(1)
 
 	done := make(chan struct{})
@@ -43,8 +42,7 @@ func TestMPSCQueue_WithLimits_BlockingPush(t *testing.T) {
 	}
 
 	v := q.Pop()
-	require.NotNil(t, v, "first pop returned nil")
-	require.Equal(t, 1, v.(int), "first pop value mismatch")
+	require.Equal(t, 1, v, "first pop value mismatch")
 
 	select {
 	case <-done:
@@ -53,12 +51,11 @@ func TestMPSCQueue_WithLimits_BlockingPush(t *testing.T) {
 	}
 
 	v = q.Pop()
-	require.NotNil(t, v, "second pop returned nil")
-	require.Equal(t, 2, v.(int), "second pop value mismatch")
+	require.Equal(t, 2, v, "second pop value mismatch")
 }
 
 func TestMPSCQueue_ConcurrentProducersSingleConsumer(t *testing.T) {
-	q := NewMPSCQueue()
+	q := NewMPSCQueue[int]()
 
 	const producers = 8
 	const perProducer = 20000
@@ -80,11 +77,11 @@ func TestMPSCQueue_ConcurrentProducersSingleConsumer(t *testing.T) {
 	target := int64(producers * perProducer)
 	var consumed atomic.Int64
 	for consumed.Load() < target {
-		v := q.Pop()
-		if v == nil {
+		if q.Len() == 0 {
 			runtime.Gosched()
 			continue
 		}
+		_ = q.Pop()
 		consumed.Add(1)
 	}
 
@@ -99,16 +96,16 @@ func TestMPSCQueue_ConcurrentProducersSingleConsumer(t *testing.T) {
 // 	if os.Getenv("LAW_SOAK") != "1" {
 // 		t.Skip("skip soak test; set LAW_SOAK=1 to enable")
 // 	}
-
+//
 // 	// Use a bounded blocking queue to avoid unbounded growth and OOM.
-// 	q := NewMPSCQueueWithLimits(1<<16, 0)
+// 	q := NewMPSCQueueWithLimits[int](1<<16, 0)
 // 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 // 	defer cancel()
-
+//
 // 	producerN := runtime.GOMAXPROCS(0) * 2
 // 	var produced atomic.Int64
 // 	var consumed atomic.Int64
-
+//
 // 	var producersWG sync.WaitGroup
 // 	producersWG.Add(producerN)
 // 	for i := 0; i < producerN; i++ {
@@ -125,24 +122,24 @@ func TestMPSCQueue_ConcurrentProducersSingleConsumer(t *testing.T) {
 // 			}
 // 		}(i)
 // 	}
-
+//
 // 	producerDone := make(chan struct{})
 // 	go func() {
 // 		producersWG.Wait()
 // 		close(producerDone)
 // 	}()
-
+//
 // 	consumerDone := make(chan struct{})
 // 	go func() {
 // 		defer close(consumerDone)
-
+//
 // 		for {
-// 			v := q.Pop()
-// 			if v != nil {
+// 			if q.Len() > 0 {
+// 				_ = q.Pop()
 // 				consumed.Add(1)
 // 				continue
 // 			}
-
+//
 // 			select {
 // 			case <-producerDone:
 // 				// Drain remaining items after all producers have exited.
@@ -154,21 +151,21 @@ func TestMPSCQueue_ConcurrentProducersSingleConsumer(t *testing.T) {
 // 			}
 // 		}
 // 	}()
-
+//
 // 	<-producerDone
-
+//
 // 	select {
 // 	case <-consumerDone:
 // 	case <-time.After(30 * time.Second):
 // 		require.FailNow(t, "consumer drain timed out after soak test ended")
 // 	}
-
+//
 // 	producedCount := produced.Load()
 // 	consumedCount := consumed.Load()
 // 	require.Equalf(t, producedCount, consumedCount, "soak count mismatch: produced=%d consumed=%d", producedCount, consumedCount)
 // }
 
-func benchmarkMPSCQueuePushPop(b *testing.B, q *MPSCQueue) {
+func benchmarkMPSCQueuePushPop(b *testing.B, q *MPSCQueue[int]) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		q.Push(i)
@@ -177,11 +174,11 @@ func benchmarkMPSCQueuePushPop(b *testing.B, q *MPSCQueue) {
 }
 
 func BenchmarkMPSCQueue_PushPop(b *testing.B) {
-	benchmarkMPSCQueuePushPop(b, NewMPSCQueue())
+	benchmarkMPSCQueuePushPop(b, NewMPSCQueue[int]())
 }
 
 func BenchmarkMPSCQueue_ParallelPushPop(b *testing.B) {
-	q := NewMPSCQueue()
+	q := NewMPSCQueue[int]()
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {

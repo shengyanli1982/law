@@ -21,17 +21,18 @@ var (
 
 // WriteAsyncer 异步写入器结构体
 type WriteAsyncer struct {
-	config         *Config            // 配置信息
-	writer         io.Writer          // 底层写入器
-	bufferedWriter *bufio.Writer      // 带缓冲的写入器
-	poller         *poller.Poller     // 轮询器组件
-	timer          atomic.Int64       // 计时器
-	once           sync.Once          // 确保只执行一次的控制器
-	ctx            context.Context    // 上下文
-	cancel         context.CancelFunc // 取消函数
-	wg             sync.WaitGroup     // 等待组
-	state          *wr.Status         // 状态管理器
-	bufferpool     *wr.BufferPool     // 缓冲池
+	config         *Config
+	queue          Queue
+	writer         io.Writer
+	bufferedWriter *bufio.Writer
+	poller         *poller.Poller
+	timer          atomic.Int64
+	once           sync.Once
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	state          *wr.Status
+	bufferpool     *wr.BufferPool
 }
 
 // NewWriteAsyncer 创建新的异步写入器
@@ -41,9 +42,11 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	}
 
 	conf = isConfigValid(conf)
+	queue := conf.queue
 
 	wa := &WriteAsyncer{
 		config:         conf,
+		queue:          queue,
 		writer:         writer,
 		bufferedWriter: bufio.NewWriterSize(writer, conf.buffSize),
 		state:          wr.NewStatus(),
@@ -56,9 +59,8 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
 	wa.state.SetRunning(true)
 
-	// 创建并启动Poller组件
 	wa.poller = poller.NewPoller(&poller.Config{
-		Queue:             conf.queue,
+		Queue:             queue,
 		Writer:            wa.bufferedWriter,
 		Callback:          conf.callback,
 		BufferPool:        wa.bufferpool,
@@ -80,7 +82,7 @@ func (wa *WriteAsyncer) Stop() {
 		wa.cancel()
 		wa.wg.Wait()
 		wa.poller.CleanQueue()
-		wa.bufferedWriter.Flush()
+		_ = wa.bufferedWriter.Flush()
 		wa.bufferedWriter.Reset(io.Discard)
 	})
 }
@@ -100,10 +102,7 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
-	// 直接用本次写入长度作为提示，避免热路径原子统计开销
 	buff := wa.bufferpool.GetWithHint(l)
-
-	// 只在容量不足时扩容
 	if buff.Cap() < l {
 		buff.Grow(l - buff.Cap())
 	}
@@ -113,6 +112,6 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, err
 	}
 
-	wa.config.queue.Push(buff)
+	wa.queue.Push(buff)
 	return l, nil
 }
