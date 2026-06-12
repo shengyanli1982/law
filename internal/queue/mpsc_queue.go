@@ -2,6 +2,7 @@ package queue
 
 import (
 	"bytes"
+	"runtime"
 	"sync"
 )
 
@@ -14,9 +15,8 @@ type queueNode[T any] struct {
 // MPSCQueue 是基于 mutex/cond 的链表队列，并使用 sync.Pool 复用节点。
 // 该实现面向多生产者、单消费者场景，默认不丢数据。
 type MPSCQueue[T any] struct {
-	mu       sync.Mutex
-	notEmpty *sync.Cond
-	notFull  *sync.Cond
+	mu      sync.Mutex
+	notFull *sync.Cond
 
 	head *queueNode[T]
 	tail *queueNode[T]
@@ -33,11 +33,19 @@ type MPSCQueue[T any] struct {
 // NewMPSCQueue 创建一个无界泛型队列。
 func NewMPSCQueue[T any]() *MPSCQueue[T] {
 	q := &MPSCQueue[T]{}
-	q.notEmpty = sync.NewCond(&q.mu)
 	q.notFull = sync.NewCond(&q.mu)
 	q.nodePool.New = func() any {
 		return &queueNode[T]{}
 	}
+
+	warmUpCount := runtime.GOMAXPROCS(0) * 4
+	if warmUpCount < 8 {
+		warmUpCount = 8
+	}
+	for i := 0; i < warmUpCount; i++ {
+		q.nodePool.Put(&queueNode[T]{})
+	}
+
 	return q
 }
 
@@ -85,12 +93,13 @@ func (q *MPSCQueue[T]) Push(value T) {
 
 	size := estimateSize(value)
 
+	node := q.nodePool.Get().(*queueNode[T])
+
 	q.mu.Lock()
 	for q.isFull(size) {
 		q.notFull.Wait()
 	}
 
-	node := q.nodePool.Get().(*queueNode[T])
 	node.value = value
 	node.size = size
 	node.next = nil
@@ -105,7 +114,6 @@ func (q *MPSCQueue[T]) Push(value T) {
 
 	q.count++
 	q.bytes += int64(size)
-	q.notEmpty.Signal()
 	q.mu.Unlock()
 }
 
@@ -126,10 +134,11 @@ func (q *MPSCQueue[T]) Pop() T {
 	}
 	q.count--
 	q.bytes -= int64(node.size)
-	if q.maxItems > 0 || q.maxBytes > 0 {
+	needSignal := q.maxItems > 0 || q.maxBytes > 0
+	q.mu.Unlock()
+	if needSignal {
 		q.notFull.Signal()
 	}
-	q.mu.Unlock()
 
 	value := node.value
 	var resetValue T

@@ -1,6 +1,7 @@
 go 1.19
 
 use (
+	.
 	./examples/http/server/asyncwriter
 	./examples/http/server/syncwriter
 	./examples/log/klog

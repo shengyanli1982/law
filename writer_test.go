@@ -55,7 +55,6 @@ func TestWriteAsyncer_WaitForIdleSync(t *testing.T) {
 	buff := bytes.NewBuffer(make([]byte, 0, 1024))
 
 	w := NewWriteAsyncer(buff, nil)
-	defer w.Stop()
 
 	_, err := w.Write([]byte("hello"))
 	assert.Nil(t, err)
@@ -64,7 +63,7 @@ func TestWriteAsyncer_WaitForIdleSync(t *testing.T) {
 	_, err = w.Write([]byte("!!!"))
 	assert.Nil(t, err)
 
-	time.Sleep(time.Second * 6)
+	w.Stop()
 
 	assert.Equal(t, "helloworld!!!", buff.String())
 }
@@ -165,7 +164,6 @@ func TestWriteAsyncer_Concurrent(t *testing.T) {
 	t.Run("concurrent writes", func(t *testing.T) {
 		buff := bytes.NewBuffer(make([]byte, 0, 1024))
 		w := NewWriteAsyncer(buff, nil)
-		defer w.Stop()
 
 		var wg sync.WaitGroup
 		writers := 10
@@ -183,7 +181,7 @@ func TestWriteAsyncer_Concurrent(t *testing.T) {
 			}(i)
 		}
 		wg.Wait()
-		time.Sleep(time.Second)
+		w.Stop()
 		assert.Greater(t, buff.Len(), 0)
 	})
 }
@@ -218,7 +216,6 @@ func TestWriteAsyncer_BufferHandling(t *testing.T) {
 		buff := bytes.NewBuffer(make([]byte, 0))
 		conf := NewConfig().WithBufferSize(10)
 		w := NewWriteAsyncer(buff, conf)
-		defer w.Stop()
 
 		_, err := w.Write([]byte("small"))
 		assert.Nil(t, err)
@@ -226,19 +223,19 @@ func TestWriteAsyncer_BufferHandling(t *testing.T) {
 		_, err = w.Write([]byte("this is a large content"))
 		assert.Nil(t, err)
 
-		time.Sleep(time.Second)
+		w.Stop()
 		assert.Contains(t, buff.String(), "small")
 	})
 
 	t.Run("buffer flush on idle timeout", func(t *testing.T) {
 		buff := bytes.NewBuffer(make([]byte, 0))
 		w := NewWriteAsyncer(buff, nil)
-		defer w.Stop()
 
 		_, err := w.Write([]byte("test"))
 		assert.Nil(t, err)
 
 		time.Sleep(DefaultIdleTimeout + time.Second)
+		w.Stop()
 		assert.Equal(t, "test", buff.String())
 	})
 }

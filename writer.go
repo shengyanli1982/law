@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/shengyanli1982/law/internal/poller"
 	wr "github.com/shengyanli1982/law/internal/writer"
@@ -26,7 +25,6 @@ type WriteAsyncer struct {
 	writer         io.Writer
 	bufferedWriter *bufio.Writer
 	poller         *poller.Poller
-	timer          atomic.Int64
 	once           sync.Once
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -50,7 +48,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		writer:         writer,
 		bufferedWriter: bufio.NewWriterSize(writer, conf.buffSize),
 		state:          wr.NewStatus(),
-		timer:          atomic.Int64{},
 		once:           sync.Once{},
 		wg:             sync.WaitGroup{},
 		bufferpool:     wr.NewBufferPool(),
@@ -64,7 +61,6 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 		Writer:            wa.bufferedWriter,
 		Callback:          conf.callback,
 		BufferPool:        wa.bufferpool,
-		Timer:             &wa.timer,
 		HeartbeatInterval: conf.heartbeatInterval,
 		IdleTimeout:       conf.idleTimeout,
 	})
