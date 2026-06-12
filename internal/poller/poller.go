@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	wr "github.com/shengyanli1982/law/internal/writer"
@@ -28,9 +27,7 @@ type Poller struct {
 	writer            *bufio.Writer
 	callback          Callback
 	hasCallback       bool
-	executeAt         int64
 	bufferpool        *wr.BufferPool
-	timer             *atomic.Int64
 	heartbeatInterval time.Duration
 	idleTimeout       time.Duration
 }
@@ -41,7 +38,6 @@ type Config struct {
 	Writer            *bufio.Writer
 	Callback          Callback
 	BufferPool        *wr.BufferPool
-	Timer             *atomic.Int64
 	HeartbeatInterval time.Duration
 	IdleTimeout       time.Duration
 }
@@ -54,7 +50,6 @@ func NewPoller(cfg *Config) *Poller {
 		callback:          cfg.Callback,
 		hasCallback:       cfg.Callback != nil,
 		bufferpool:        cfg.BufferPool,
-		timer:             cfg.Timer,
 		heartbeatInterval: cfg.HeartbeatInterval,
 		idleTimeout:       cfg.IdleTimeout,
 	}
@@ -63,11 +58,11 @@ func NewPoller(cfg *Config) *Poller {
 // Run 启动轮询器，处理写入请求和心跳检查。
 func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(p.heartbeatInterval)
-	var tickCount int64
 
-	now := time.Now().UnixMilli()
-	p.timer.Store(now)
-	p.executeAt = now
+	now := time.Now()
+	nowMilli := now.UnixMilli()
+	executeAt := nowMilli
+	lastTimerUpdate := now
 
 	defer func() {
 		ticker.Stop()
@@ -80,7 +75,7 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 			if element == nil {
 				break
 			}
-			p.executeFunc(element)
+			p.executeFunc(element, &executeAt, nowMilli)
 		}
 
 		select {
@@ -88,22 +83,20 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 			return
 
 		case <-ticker.C:
-			tickCount++
 
-			if tickCount%(int64(time.Second/p.heartbeatInterval)) == 0 {
-				now = time.Now().UnixMilli()
-				p.timer.Store(now)
+			if time.Since(lastTimerUpdate) >= time.Second {
+				nowMilli = time.Now().UnixMilli()
+				lastTimerUpdate = time.Now()
 			}
 
 			if p.writer.Buffered() > 0 {
-				cachedNow := p.timer.Load()
-				if (cachedNow - p.executeAt) >= p.idleTimeout.Milliseconds() {
+				if (nowMilli - executeAt) >= p.idleTimeout.Milliseconds() {
 					if err := p.writer.Flush(); err != nil {
 						if p.hasCallback {
 							p.callback.OnWriteFailed(nil, err)
 						}
 					}
-					p.executeAt = cachedNow
+					executeAt = nowMilli
 				}
 			}
 		}
@@ -111,8 +104,8 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 // executeFunc 执行写入操作。
-func (p *Poller) executeFunc(buff *bytes.Buffer) {
-	p.executeAt = p.timer.Load()
+func (p *Poller) executeFunc(buff *bytes.Buffer, executeAt *int64, nowMilli int64) {
+	*executeAt = nowMilli
 	content := buff.Bytes()
 
 	if _, err := p.flushBufferedWriter(content); err != nil {
@@ -142,11 +135,13 @@ func (p *Poller) flushBufferedWriter(content []byte) (int, error) {
 
 // CleanQueue 清理队列中的所有内容。
 func (p *Poller) CleanQueue() {
+	nowMilli := time.Now().UnixMilli()
+	executeAt := nowMilli
 	for {
 		elem := p.queue.Pop()
 		if elem == nil {
 			break
 		}
-		p.executeFunc(elem)
+		p.executeFunc(elem, &executeAt, nowMilli)
 	}
 }

@@ -2,8 +2,8 @@ package writer
 
 import (
 	"bytes"
+	"runtime"
 	"sync"
-	"sync/atomic"
 )
 
 // 定义不同大小的缓冲区类别
@@ -21,58 +21,51 @@ const (
 	largeBufferSize = 32 * 1024
 )
 
-// BufferSizeStats 缓冲区大小统计
-type BufferSizeStats struct {
-	smallCount  atomic.Int64 // 小缓冲区计数
-	mediumCount atomic.Int64 // 中等缓冲区计数
-	largeCount  atomic.Int64 // 大缓冲区计数
-	overSize    atomic.Int64 // 超大缓冲区计数
-	totalCalls  atomic.Int64 // 总调用次数
-}
-
 // BufferPool 是一个结构体，它包含多个同步池以支持不同大小的缓冲区
 type BufferPool struct {
-	tinyPool   *sync.Pool      // 超小缓冲区池（<= 128B）
-	smallPool  *sync.Pool      // 小缓冲区池（<= 1KB）
-	mediumPool *sync.Pool      // 中等缓冲区池（<= 8KB）
-	largePool  *sync.Pool      // 大缓冲区池（<= 32KB）
-	stats      BufferSizeStats // 大小统计信息
+	tinyPool   *sync.Pool // 超小缓冲区池（<= 128B）
+	smallPool  *sync.Pool // 小缓冲区池（<= 1KB）
+	mediumPool *sync.Pool // 中等缓冲区池（<= 8KB）
+	largePool  *sync.Pool // 大缓冲区池（<= 32KB）
 }
 
 // NewBufferPool 是一个函数，它创建并返回一个新的 BufferPool
 func NewBufferPool() *BufferPool {
-	return &BufferPool{
-		// 创建超小缓冲区池
+	p := &BufferPool{
 		tinyPool: &sync.Pool{
 			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, tinyBufferSize))
 			},
 		},
-
-		// 创建小缓冲区池
 		smallPool: &sync.Pool{
 			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, smallBufferSize))
 			},
 		},
-
-		// 创建中等缓冲区池
 		mediumPool: &sync.Pool{
 			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, mediumBufferSize))
 			},
 		},
-
-		// 创建大缓冲区池
 		largePool: &sync.Pool{
 			New: func() any {
 				return bytes.NewBuffer(make([]byte, 0, largeBufferSize))
 			},
 		},
-
-		// 初始化统计信息
-		stats: BufferSizeStats{},
 	}
+
+	warmUpCount := runtime.GOMAXPROCS(0) * 4
+	if warmUpCount < 8 {
+		warmUpCount = 8
+	}
+	for i := 0; i < warmUpCount; i++ {
+		p.tinyPool.Put(bytes.NewBuffer(make([]byte, 0, tinyBufferSize)))
+		p.smallPool.Put(bytes.NewBuffer(make([]byte, 0, smallBufferSize)))
+		p.mediumPool.Put(bytes.NewBuffer(make([]byte, 0, mediumBufferSize)))
+		p.largePool.Put(bytes.NewBuffer(make([]byte, 0, largeBufferSize)))
+	}
+
+	return p
 }
 
 // Get 是一个方法，它从 BufferPool 获取一个合适大小的缓冲区
@@ -108,7 +101,9 @@ func (p *BufferPool) Put(e *bytes.Buffer) {
 	// 重置缓冲区
 	e.Reset()
 
-	// 根据缓冲区容量决定放入哪个池
+	// 按 buffer 实际容量路由到匹配的池。
+	// buffer 经 Grow 扩容后 cap 增大，会被放入更大的池，
+	// 这是合理行为：该 buffer 在更大的池中仍可被后续需要相似大小的请求复用。
 	cap := e.Cap()
 	if cap <= tinyBufferSize {
 		p.tinyPool.Put(e)
@@ -119,15 +114,5 @@ func (p *BufferPool) Put(e *bytes.Buffer) {
 	} else if cap <= largeBufferSize {
 		p.largePool.Put(e)
 	}
-	// 超大缓冲区不放回池中，让GC回收
-}
-
-// GetStats 返回缓冲池统计信息
-func (p *BufferPool) GetStats() (small, medium, large, oversize, total int64) {
-	small = p.stats.smallCount.Load()
-	medium = p.stats.mediumCount.Load()
-	large = p.stats.largeCount.Load()
-	oversize = p.stats.overSize.Load()
-	total = p.stats.totalCalls.Load()
-	return
+	// cap > largeBufferSize → 丢弃，让 GC 回收
 }
