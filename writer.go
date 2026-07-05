@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/shengyanli1982/law/internal/poller"
 	wr "github.com/shengyanli1982/law/internal/writer"
@@ -17,6 +18,12 @@ var (
 	ErrorWriteAsyncerIsClosed = errors.New("write asyncer is closed")
 	ErrorWriteContentIsNil    = errors.New("write content is nil")
 )
+
+// pushChecker 是 writer 内部使用的私有接口，用于检测队列是否有可用空间。
+// 仅当底层队列实现了 Available() 方法（如 MPSCQueue）时才会触发背压通知。
+type pushChecker interface {
+	Available() bool
+}
 
 // WriteAsyncer 异步写入器结构体
 type WriteAsyncer struct {
@@ -91,6 +98,24 @@ func (wa *WriteAsyncer) Stop() {
 	})
 }
 
+// StopWithTimeout 带超时的停止方法，防止底层 I/O 卡住时无限阻塞。
+// 超时返回 context.DeadlineExceeded；正常关闭返回 nil。
+func (wa *WriteAsyncer) StopWithTimeout(timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() {
+		wa.Stop()
+		close(done)
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return nil
+	case <-timer.C:
+		return context.DeadlineExceeded
+	}
+}
+
 // Write 实现写入方法
 func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	if !wa.state.IsRunning() {
@@ -116,6 +141,44 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, err
 	}
 
+	if pc, ok := wa.queue.(pushChecker); ok {
+		if !pc.Available() {
+			wa.config.callback.OnWriteBlocked("bounded queue full, push will block")
+		}
+	}
+	wa.queue.Push(buff)
+	return l, nil
+}
+
+// WriteString 实现 io.StringWriter 接口，使日志框架（zap/logrus/stdlib log）
+// 检测到该接口时自动走字符串写入路径，避免 string→[]byte 的额外分配。
+func (wa *WriteAsyncer) WriteString(s string) (n int, err error) {
+	if !wa.state.IsRunning() {
+		return 0, ErrorWriteAsyncerIsClosed
+	}
+
+	if s == "" {
+		return 0, nil
+	}
+
+	l := len(s)
+	buff := wa.bufferpool.GetWithHint(l)
+	if buff.Cap() < l {
+		buff.Grow(l - buff.Cap())
+	}
+
+	for i := 0; i < l; i++ {
+		if err = buff.WriteByte(s[i]); err != nil {
+			wa.bufferpool.Put(buff)
+			return i, err
+		}
+	}
+
+	if pc, ok := wa.queue.(pushChecker); ok {
+		if !pc.Available() {
+			wa.config.callback.OnWriteBlocked("bounded queue full, push will block")
+		}
+	}
 	wa.queue.Push(buff)
 	return l, nil
 }

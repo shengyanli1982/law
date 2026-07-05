@@ -25,6 +25,10 @@ func (c *callback) OnWriteFailed(b []byte, err error) {
 	assert.ErrorIs(c.t, err, errorWriteFailed, "Expected error")
 }
 
+func (c *callback) OnWriteBlocked(reason string) {
+	fmt.Printf("## callback.OnWriteBlocked(%s)\n", reason)
+}
+
 var errorWriteFailed = errors.New("write context failed")
 
 type faultyWriter struct{}

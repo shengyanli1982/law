@@ -178,3 +178,11 @@ func (q *MPSCQueue[T]) Len() int {
 	q.mu.Unlock()
 	return n
 }
+
+// Available 返回队列是否有可用空间接收新元素。
+// 无界队列始终返回 true；有界队列在满时返回 false。
+func (q *MPSCQueue[T]) Available() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return !q.isFull(1)
+}

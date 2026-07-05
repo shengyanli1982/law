@@ -17,6 +17,11 @@ type Callback interface {
 	// 注意：content 仅在回调执行期间有效，不应在回调返回后保持引用。
 	// 如需异步处理 content，请在回调内复制数据。
 	OnWriteFailed(content []byte, reason error)
+
+	// OnWriteBlocked 在有界队列已满、Push 即将阻塞时被调用。
+	// reason 描述阻塞原因，例如 "bounded queue full, push will block"。
+	// 用户可在此回调中实施降级策略（如丢弃低优先级日志、告警等）。
+	OnWriteBlocked(reason string)
 }
 
 // emptyCallback 空回调实现
@@ -24,6 +29,9 @@ type emptyCallback struct{}
 
 // OnWriteFailed 空回调的写入失败处理方法（无操作）
 func (c *emptyCallback) OnWriteFailed([]byte, error) {}
+
+// OnWriteBlocked 空回调的写入阻塞处理方法（无操作）
+func (c *emptyCallback) OnWriteBlocked(string) {}
 
 // defaultEmptyCallback 包级私有单例
 var defaultEmptyCallback = &emptyCallback{}
