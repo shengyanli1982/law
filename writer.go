@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/shengyanli1982/law/internal/poller"
 	wr "github.com/shengyanli1982/law/internal/writer"
@@ -25,6 +26,10 @@ type pushChecker interface {
 	Available() bool
 }
 
+type boundedChecker interface {
+	IsBounded() bool
+}
+
 // WriteAsyncer 异步写入器结构体
 type WriteAsyncer struct {
 	config         *Config
@@ -38,6 +43,8 @@ type WriteAsyncer struct {
 	wg             sync.WaitGroup
 	state          *wr.Status
 	bufferpool     *wr.BufferPool
+	hasPushChecker bool
+	pushChecker    pushChecker
 }
 
 // NewWriteAsyncer 创建新的异步写入器
@@ -62,6 +69,13 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 
 	wa.ctx, wa.cancel = context.WithCancel(context.Background())
 	wa.state.SetRunning(true)
+
+	if pc, ok := wa.queue.(pushChecker); ok {
+		if bc, ok2 := wa.queue.(boundedChecker); ok2 && bc.IsBounded() {
+			wa.hasPushChecker = true
+			wa.pushChecker = pc
+		}
+	}
 
 	wa.poller = poller.NewPoller(&poller.Config{
 		Queue:             queue,
@@ -141,8 +155,8 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, err
 	}
 
-	if pc, ok := wa.queue.(pushChecker); ok {
-		if !pc.Available() {
+	if wa.hasPushChecker {
+		if !wa.pushChecker.Available() {
 			wa.config.callback.OnWriteBlocked("bounded queue full, push will block")
 		}
 	}
@@ -167,15 +181,14 @@ func (wa *WriteAsyncer) WriteString(s string) (n int, err error) {
 		buff.Grow(l - buff.Cap())
 	}
 
-	for i := 0; i < l; i++ {
-		if err = buff.WriteByte(s[i]); err != nil {
-			wa.bufferpool.Put(buff)
-			return i, err
-		}
+	src := unsafe.Slice(unsafe.StringData(s), l)
+	if n, err = buff.Write(src); err != nil {
+		wa.bufferpool.Put(buff)
+		return 0, err
 	}
 
-	if pc, ok := wa.queue.(pushChecker); ok {
-		if !pc.Available() {
+	if wa.hasPushChecker {
+		if !wa.pushChecker.Available() {
 			wa.config.callback.OnWriteBlocked("bounded queue full, push will block")
 		}
 	}

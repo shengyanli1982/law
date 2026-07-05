@@ -186,3 +186,7 @@ func (q *MPSCQueue[T]) Available() bool {
 	defer q.mu.Unlock()
 	return !q.isFull(1)
 }
+
+func (q *MPSCQueue[T]) IsBounded() bool {
+	return q.maxItems > 0 || q.maxBytes > 0
+}

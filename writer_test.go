@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -212,6 +213,48 @@ func BenchmarkWriteAsyncer(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			w.Write(largeBytes)
 		}
+	})
+
+	b.Run("concurrent small writes", func(b *testing.B) {
+		w := NewWriteAsyncer(bytes.NewBuffer(nil), nil)
+		defer w.Stop()
+
+		data := []byte("small")
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				w.Write(data)
+			}
+		})
+	})
+
+	b.Run("string writes", func(b *testing.B) {
+		buff := bytes.NewBuffer(make([]byte, 0, b.N*len("string-small")))
+		w := NewWriteAsyncer(buff, nil)
+		defer w.Stop()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			w.WriteString("string-small")
+		}
+	})
+
+	b.Run("concurrent mixed writes", func(b *testing.B) {
+		var counter atomic.Uint64
+		w := NewWriteAsyncer(bytes.NewBuffer(nil), nil)
+		defer w.Stop()
+
+		smallData := []byte("small")
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if counter.Add(1)%2 == 0 {
+					w.Write(smallData)
+				} else {
+					w.Write(largeBytes)
+				}
+			}
+		})
 	})
 }
 
