@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,10 @@ func (c *callback) OnWriteFailed(b []byte, err error) {
 		assert.Equal(c.t, b, largeBytes, "Expected bytes")
 	}
 	assert.ErrorIs(c.t, err, errorWriteFailed, "Expected error")
+}
+
+func (c *callback) OnWriteBlocked(reason string) {
+	fmt.Printf("## callback.OnWriteBlocked(%s)\n", reason)
 }
 
 var errorWriteFailed = errors.New("write context failed")
@@ -209,6 +214,93 @@ func BenchmarkWriteAsyncer(b *testing.B) {
 			w.Write(largeBytes)
 		}
 	})
+
+	b.Run("concurrent small writes", func(b *testing.B) {
+		w := NewWriteAsyncer(bytes.NewBuffer(nil), nil)
+		defer w.Stop()
+
+		data := []byte("small")
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				w.Write(data)
+			}
+		})
+	})
+
+	b.Run("string writes", func(b *testing.B) {
+		buff := bytes.NewBuffer(make([]byte, 0, b.N*len("string-small")))
+		w := NewWriteAsyncer(buff, nil)
+		defer w.Stop()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			w.WriteString("string-small")
+		}
+	})
+
+	b.Run("concurrent mixed writes", func(b *testing.B) {
+		var counter atomic.Uint64
+		w := NewWriteAsyncer(bytes.NewBuffer(nil), nil)
+		defer w.Stop()
+
+		smallData := []byte("small")
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if counter.Add(1)%2 == 0 {
+					w.Write(smallData)
+				} else {
+					w.Write(largeBytes)
+				}
+			}
+		})
+	})
+}
+
+type slowWriter struct {
+	delay time.Duration
+}
+
+func (sw *slowWriter) Write(p []byte) (int, error) {
+	time.Sleep(sw.delay)
+	return len(p), nil
+}
+
+func TestWriteAsyncer_BoundedQueue_StopUnblocks(t *testing.T) {
+	// 创建容量为 1 的有界队列
+	q := NewBoundedQueue(1, 0)
+	conf := NewConfig().WithQueue(q)
+
+	// 使用一个慢 writer 来让队列保持满
+	w := NewWriteAsyncer(&slowWriter{delay: 100 * time.Millisecond}, conf)
+
+	// 写入足够多的数据填满队列
+	for i := 0; i < 5; i++ {
+		w.Write([]byte("hello"))
+	}
+
+	// 在另一个 goroutine 中继续写入（会阻塞在有界队列）
+	go func() {
+		w.Write([]byte("blocked"))
+	}()
+
+	// 等一小段时间让 goroutine 阻塞
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop 应该解除阻塞并在合理时间内完成
+	stopDone := make(chan struct{})
+	go func() {
+		w.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		// Stop 成功完成
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop() did not complete within 5 seconds, likely blocked goroutine on bounded queue")
+	}
 }
 
 func TestWriteAsyncer_BufferHandling(t *testing.T) {

@@ -12,9 +12,9 @@
 
 # Introduction
 
-**LAW** (Log Asynchronous Writer) is a lightweight, zero-dependency Go library that turns any `io.Writer` into a fully asynchronous writer. It is designed for high-concurrency scenarios such as HTTP servers, gRPC services, and any workload where I/O latency must not block the hot path.
+**LAW** (Log Asynchronous Writer) is a lightweight, zero-dependency Go library that turns any `io.Writer` into a fully asynchronous writer. It also implements `io.StringWriter` for zero-copy string writes, enabling frameworks like zap/logrus to auto-detect the optimized path. It is designed for high-concurrency scenarios such as HTTP servers, gRPC services, and any workload where I/O latency must not block the hot path.
 
-With just two APIs -- `Write` and `Stop` -- LAW acts as a transparent drop-in replacement. It can be composed with any logging framework that accepts an `io.Writer`, including `zap`, `logrus`, `klog`, and `zerolog`.
+With a minimal API surface -- `Write`, `WriteString`, `Stop`, and `StopWithTimeout` -- LAW acts as a transparent drop-in replacement. It can be composed with any logging framework that accepts an `io.Writer`, including `zap`, `logrus`, `klog`, and `zerolog`.
 
 # Architecture
 
@@ -29,9 +29,9 @@ Data flow:
 ```
 Caller (goroutine N)                     Poller (single goroutine)
       |                                          |
-  bufferpool.Get()                               |
+  bufferpool.GetWithHint()                       |
       |                                          |
-  Write(p) -> queue.Push(buf)                    |
+  Write / WriteString -> queue.Push(buf)         |
       |                                          |
   return (non-blocking)          queue.Pop() -> bufio.Write -> Flush -> io.Writer
 ```
@@ -58,12 +58,14 @@ Even in single-goroutine (serial) mode, LAW delivers a significant advantage:
 
 # Advantages
 
-- **Latency-insensitive writes** -- Caller `Write()` returns in ~185-375 ns (serial/parallel) regardless of backend speed, as confirmed by SlowIO benchmarks.
+- **Latency-insensitive writes** -- Caller `Write()` returns in ~120-310 ns (serial/parallel) regardless of backend speed, as confirmed by SlowIO benchmarks.
 - **Zero external dependencies** -- Only the Go standard library.
 - **GC-friendly** -- `BufferPool` (`sync.Pool`) recycles `bytes.Buffer` objects; the MPSC queue reuses linked-list nodes via its own `sync.Pool`.
 - **Production-grade concurrency** -- MPSC queue is safe for any number of concurrent writers; a single poller goroutine serializes downstream I/O.
-- **Drop-in `io.Writer`** -- Works with `zap`, `logrus`, `klog`, `zerolog`, and any `io.Writer`-compatible sink.
-- **Configurable** -- Buffer size, heartbeat interval, idle timeout, custom queue, and write-failure callbacks.
+- **Drop-in `io.Writer` + `io.StringWriter`** -- Works with `zap`, `logrus`, `klog`, `zerolog`, and any `io.Writer`-compatible sink. The `WriteString()` path is optimized for string data with zero-copy conversion.
+- **Backpressure-aware** -- `NewBoundedQueue` caps queue depth; the `OnWriteBlocked` callback fires before `Write` blocks on a full queue, enabling graceful degradation.
+- **Graceful shutdown** -- `Stop()` drains remaining entries and flushes the buffer. `StopWithTimeout(timeout)` adds a deadline for environments like Kubernetes (SIGTERM grace period).
+- **Configurable** -- Buffer size, heartbeat interval, idle timeout, custom queue, write-failure and backpressure callbacks.
 
 # Installation
 
@@ -73,7 +75,7 @@ go get github.com/shengyanli1982/law
 
 # Quick Start
 
-Create a `WriteAsyncer`, write data, and call `Stop()` when done.
+Create a `WriteAsyncer`, write data, and call `Stop()` (or `StopWithTimeout`) when done.
 
 ```go
 package main
@@ -87,14 +89,10 @@ import (
 )
 
 func main() {
-	// Create a new configuration
 	conf := law.NewConfig()
-
-	// Create a new WriteAsyncer backed by os.Stdout
 	w := law.NewWriteAsyncer(os.Stdout, conf)
-	defer w.Stop()
+	defer w.Stop() // or w.StopWithTimeout(10 * time.Second) for deadline protection
 
-	// Write 10 entries
 	for i := 0; i < 10; i++ {
 		_, _ = w.Write([]byte(strconv.Itoa(i)))
 	}
@@ -110,19 +108,24 @@ LAW is designed to be easily extensible. The following sections describe the con
 
 ## 1. Callback
 
-LAW supports an action callback interface. You can register a callback that is invoked when specific events occur (e.g., a write failure).
+LAW supports an action callback interface invoked on write failures and backpressure events.
 
 ```go
 // Callback defines callback functions for write operations.
 type Callback interface {
 	// OnWriteFailed is called when a write to the underlying io.Writer fails.
+	// content is only valid during the callback; copy before retaining.
 	OnWriteFailed(content []byte, reason error)
+
+	// OnWriteBlocked fires before Write blocks on a full bounded queue,
+	// giving you a chance to implement degradation (drop, log, alert).
+	OnWriteBlocked(reason string)
 }
 ```
 
 > [!TIP]
 >
-> Callbacks are optional. If you do not need them, pass `nil` (or omit `WithCallback`), and LAW uses a no-op implementation.
+> Both methods are optional. If you do not need callbacks, pass `nil` (or omit `WithCallback`), and LAW uses a no-op implementation.
 
 ### Example
 
@@ -145,8 +148,11 @@ func (c *callback) OnWriteFailed(b []byte, err error) {
 	fmt.Printf("write failed: %s, error: %v\n", string(b), err)
 }
 
+func (c *callback) OnWriteBlocked(reason string) {
+	fmt.Printf("write blocked: %s\n", reason)
+}
+
 func main() {
-	// Configure a callback
 	conf := law.NewConfig().WithCallback(&callback{})
 
 	w := law.NewWriteAsyncer(os.Stdout, conf)
@@ -233,21 +239,43 @@ func main() {
 }
 ```
 
-## 4. Custom Queue
+## 4. Bounded Queue
 
-LAW's internal queue is pluggable. The default is an MPSC queue built on `mutex/cond + linked list + sync.Pool`. You can substitute your own implementation.
-
-> [!TIP]
->
-> Use `WithQueue` to provide a custom queue. The queue must implement the `law.Queue` interface:
+By default the queue is unbounded. Use `law.NewBoundedQueue` to cap the maximum depth, which prevents unbounded memory growth under load.
 
 ```go
-// Queue defines the basic operations of a queue: Push and Pop.
-type Queue interface {
-	// Push adds a value to the queue.
-	Push(value *bytes.Buffer)
+// Cap at 10 000 entries, or 10 MB -- whichever is hit first.
+conf := law.NewConfig().WithQueue(law.NewBoundedQueue(10_000, 10*1024*1024))
+```
 
-	// Pop removes and returns a value from the queue.
+When the queue is full, `Write` and `WriteString` block until space is available. The `OnWriteBlocked` callback fires just before the block, allowing you to implement a degradation strategy (e.g., drop low-priority entries or raise an alert).
+
+> [!NOTE]
+>
+> For unbounded queues the `Available()` check is skipped entirely at runtime, so there is no performance overhead for the default configuration.
+
+## 5. Graceful Shutdown
+
+`Stop()` drains remaining queue entries and flushes the `bufio.Writer` buffer before returning. If the underlying `io.Writer` hangs, `Stop()` will block -- preventing the process from exiting cleanly.
+
+`StopWithTimeout(timeout)` adds a deadline:
+
+```go
+// In a Kubernetes SIGTERM handler, allow up to 10 seconds for flush.
+if err := w.StopWithTimeout(10 * time.Second); err != nil {
+	log.Fatal("shutdown: flush did not complete in time", err)
+}
+```
+
+A timeout returns `context.DeadlineExceeded`; a clean shutdown returns `nil`.
+
+## 6. Custom Queue
+
+LAW's internal queue is pluggable. The default is an MPSC queue built on `mutex/cond + linked list + sync.Pool`. You can substitute your own implementation via `WithQueue`. The queue must implement the `law.Queue` interface:
+
+```go
+type Queue interface {
+	Push(value *bytes.Buffer)
 	Pop() *bytes.Buffer
 }
 ```
@@ -447,7 +475,9 @@ $ go run demo.go
 
 # Benchmark
 
-**Hardware**: darwin/arm64, Apple M1 Max, Go 1.25
+**Hardware**: darwin/arm64, Apple M1 Max, Go 1.25. See `writer_test.go` and `internal/utils/blackhole_test.go` for the full source.
+
+> **Note**: These baseline numbers pre-date the pprof-driven optimizations that eliminated redundant mutex contention, zero-copy `WriteString`, and cached interface assertions. On the same hardware the current LAW pure overhead would be noticeably lower (roughly 27-36% improvement on concurrent workloads).
 
 ## BlackHole Baseline (in-memory sink, 0 I/O latency)
 
