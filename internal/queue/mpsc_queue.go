@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 type queueNode[T any] struct {
@@ -27,7 +28,9 @@ type MPSCQueue[T any] struct {
 	maxItems int
 	maxBytes int64
 
-	nodePool sync.Pool
+	nodePool  sync.Pool
+	closed    atomic.Bool
+	closeOnce sync.Once
 }
 
 // NewMPSCQueue 创建一个无界泛型队列。
@@ -86,8 +89,9 @@ func (q *MPSCQueue[T]) isFull(nextSize int) bool {
 
 // Push 将值入队。
 // 当配置了上限且队列满时，会阻塞等待空间。
+// 队列关闭后，Push 立即返回，不再接受新数据。
 func (q *MPSCQueue[T]) Push(value T) {
-	if any(value) == nil {
+	if any(value) == nil || q.closed.Load() {
 		return
 	}
 
@@ -97,7 +101,15 @@ func (q *MPSCQueue[T]) Push(value T) {
 
 	q.mu.Lock()
 	for q.isFull(size) {
+		if q.closed.Load() {
+			q.mu.Unlock()
+			return
+		}
 		q.notFull.Wait()
+	}
+	if q.closed.Load() {
+		q.mu.Unlock()
+		return
 	}
 
 	node.value = value
@@ -117,7 +129,17 @@ func (q *MPSCQueue[T]) Push(value T) {
 	q.mu.Unlock()
 }
 
-// Pop 出队一个值；队列为空时返回 T 的零值。
+// Close 关闭队列，唤醒所有阻塞在 Push 的 goroutine。
+// 关闭后不再接受新数据，Pop 在队列为空时返回零值。
+func (q *MPSCQueue[T]) Close() {
+	q.closeOnce.Do(func() {
+		q.closed.Store(true)
+		q.notFull.Broadcast()
+	})
+}
+
+// Pop 出队一个值；队列为空时返回 T 的零值；
+// 队列已关闭且为空时也返回零值。
 func (q *MPSCQueue[T]) Pop() T {
 	var zero T
 

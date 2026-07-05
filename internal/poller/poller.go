@@ -62,7 +62,6 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 	now := time.Now()
 	nowMilli := now.UnixMilli()
 	executeAt := nowMilli
-	lastTimerUpdate := now
 
 	defer func() {
 		ticker.Stop()
@@ -70,6 +69,8 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 	}()
 
 	for {
+		nowMilli = time.Now().UnixMilli()
+
 		for {
 			element := p.queue.Pop()
 			if element == nil {
@@ -83,11 +84,7 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 			return
 
 		case <-ticker.C:
-
-			if time.Since(lastTimerUpdate) >= time.Second {
-				nowMilli = time.Now().UnixMilli()
-				lastTimerUpdate = time.Now()
-			}
+			nowMilli = time.Now().UnixMilli()
 
 			if p.writer.Buffered() > 0 {
 				if (nowMilli - executeAt) >= p.idleTimeout.Milliseconds() {

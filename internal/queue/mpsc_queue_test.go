@@ -165,6 +165,67 @@ func TestMPSCQueue_ConcurrentProducersSingleConsumer(t *testing.T) {
 // 	require.Equalf(t, producedCount, consumedCount, "soak count mismatch: produced=%d consumed=%d", producedCount, consumedCount)
 // }
 
+func TestMPSCQueue_Close_UnblocksPush(t *testing.T) {
+	q := NewMPSCQueueWithLimits[int](1, 0)
+	q.Push(1)
+
+	done := make(chan struct{})
+	go func() {
+		q.Push(2)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		require.FailNow(t, "push should block when queue is full")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	q.Close()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		require.FailNow(t, "Close did not unblock Push within 1s")
+	}
+}
+
+func TestMPSCQueue_Close_RejectsNewPush(t *testing.T) {
+	q := NewMPSCQueue[int]()
+	q.Close()
+
+	q.Push(42)
+	require.Equal(t, 0, q.Len(), "Push after Close should not enqueue")
+}
+
+func TestMPSCQueue_Close_PopReturnsZeroWhenEmpty(t *testing.T) {
+	q := NewMPSCQueue[int]()
+	q.Close()
+	require.Equal(t, 0, q.Pop(), "Pop on closed empty queue should return zero value")
+}
+
+func TestMPSCQueue_Close_Idempotent(t *testing.T) {
+	q := NewMPSCQueue[int]()
+	require.NotPanics(t, func() {
+		for i := 0; i < 100; i++ {
+			q.Close()
+		}
+	})
+}
+
+func TestMPSCQueue_Close_DrainAfterClose(t *testing.T) {
+	q := NewMPSCQueue[int]()
+	for i := 0; i < 5; i++ {
+		q.Push(i)
+	}
+	q.Close()
+
+	for i := 0; i < 5; i++ {
+		require.Equal(t, i, q.Pop(), "drain after Close")
+	}
+	require.Equal(t, 0, q.Pop(), "empty after drain")
+}
+
 func benchmarkMPSCQueuePushPop(b *testing.B, q *MPSCQueue[int]) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -78,7 +78,11 @@ func (wa *WriteAsyncer) Stop() {
 		wa.cancel()
 		wa.wg.Wait()
 		wa.poller.CleanQueue()
-		_ = wa.bufferedWriter.Flush()
+		if err := wa.bufferedWriter.Flush(); err != nil {
+			if wa.config.callback != nil {
+				wa.config.callback.OnWriteFailed(nil, err)
+			}
+		}
 		wa.bufferedWriter.Reset(io.Discard)
 	})
 }
