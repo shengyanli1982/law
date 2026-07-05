@@ -75,6 +75,10 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 func (wa *WriteAsyncer) Stop() {
 	wa.once.Do(func() {
 		wa.state.SetRunning(false)
+		// 关闭队列以唤醒阻塞在有界队列 Push() 上的 goroutine
+		if closer, ok := wa.queue.(io.Closer); ok {
+			closer.Close()
+		}
 		wa.cancel()
 		wa.wg.Wait()
 		wa.poller.CleanQueue()

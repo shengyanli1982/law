@@ -13,7 +13,9 @@ type Writer interface {
 
 // Callback 定义了回调接口
 type Callback interface {
-	// OnWriteFailed 当写入失败时被调用
+	// OnWriteFailed 当写入失败时被调用。
+	// 注意：content 仅在回调执行期间有效，不应在回调返回后保持引用。
+	// 如需异步处理 content，请在回调内复制数据。
 	OnWriteFailed(content []byte, reason error)
 }
 

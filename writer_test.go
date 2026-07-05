@@ -211,6 +211,51 @@ func BenchmarkWriteAsyncer(b *testing.B) {
 	})
 }
 
+type slowWriter struct {
+	delay time.Duration
+}
+
+func (sw *slowWriter) Write(p []byte) (int, error) {
+	time.Sleep(sw.delay)
+	return len(p), nil
+}
+
+func TestWriteAsyncer_BoundedQueue_StopUnblocks(t *testing.T) {
+	// 创建容量为 1 的有界队列
+	q := NewBoundedQueue(1, 0)
+	conf := NewConfig().WithQueue(q)
+
+	// 使用一个慢 writer 来让队列保持满
+	w := NewWriteAsyncer(&slowWriter{delay: 100 * time.Millisecond}, conf)
+
+	// 写入足够多的数据填满队列
+	for i := 0; i < 5; i++ {
+		w.Write([]byte("hello"))
+	}
+
+	// 在另一个 goroutine 中继续写入（会阻塞在有界队列）
+	go func() {
+		w.Write([]byte("blocked"))
+	}()
+
+	// 等一小段时间让 goroutine 阻塞
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop 应该解除阻塞并在合理时间内完成
+	stopDone := make(chan struct{})
+	go func() {
+		w.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		// Stop 成功完成
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop() did not complete within 5 seconds, likely blocked goroutine on bounded queue")
+	}
+}
+
 func TestWriteAsyncer_BufferHandling(t *testing.T) {
 	t.Run("buffer flush on size exceed", func(t *testing.T) {
 		buff := bytes.NewBuffer(make([]byte, 0))

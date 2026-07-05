@@ -71,6 +71,13 @@ func (c *Config) WithIdleTimeout(timeout time.Duration) *Config {
 	return c
 }
 
+// NewBoundedQueue 创建有容量限制的队列。
+// maxItems 控制最大条目数，maxBytes 控制最大字节数。
+// 值 <= 0 表示不限制对应维度。达到上限后 Write 调用将阻塞。
+func NewBoundedQueue(maxItems int, maxBytes int64) Queue {
+	return iq.NewMPSCQueueWithLimits[*bytes.Buffer](maxItems, maxBytes)
+}
+
 // isConfigValid 验证并修正配置
 func isConfigValid(conf *Config) *Config {
 	if conf != nil {
