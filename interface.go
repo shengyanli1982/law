@@ -16,6 +16,11 @@ type Callback interface {
 	// OnWriteFailed 当写入失败时被调用。
 	// 注意：content 仅在回调执行期间有效，不应在回调返回后保持引用。
 	// 如需异步处理 content，请在回调内复制数据。
+	// content 语义：逐条写入失败时携带该条数据；
+	// 预 flush 失败路径（单条消息超过 bufio 剩余空间触发的先行 flush 失败）
+	// 亦属逐条失败：content 为当前条数据，且此前 bufio 缓冲中的存量数据一并丢失；
+	// 批量 flush（心跳/Stop 最终 flush）失败时为 nil，
+	// 表示缓冲中的批量数据丢失且不可恢复。
 	OnWriteFailed(content []byte, reason error)
 
 	// OnWriteBlocked 在有界队列已满、Push 即将阻塞时被调用。
@@ -43,7 +48,7 @@ func newEmptyCallback() Callback {
 
 // Queue 定义了队列接口
 type Queue interface {
-	// Push 将值推入队列
+	// Push 将值推入队列，Push(nil) 行为未定义
 	Push(value *bytes.Buffer)
 
 	// Pop 从队列中取出值
