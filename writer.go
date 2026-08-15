@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -45,6 +46,9 @@ type WriteAsyncer struct {
 	bufferpool     *wr.BufferPool
 	hasPushChecker bool
 	pushChecker    pushChecker
+	// aborted 标记实例已被 StopWithTimeout 超时放弃，
+	// 防止后续 Stop 等待被泄漏的关闭 goroutine 占用的 once.Do 而永久阻塞。
+	aborted atomic.Bool
 }
 
 // NewWriteAsyncer 创建新的异步写入器
@@ -92,8 +96,16 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	return wa
 }
 
-// Stop 停止异步写入器
+// Stop 停止异步写入器。
+// 若此前的 StopWithTimeout 已超时，实例被永久放弃，本方法立即返回，不执行任何关闭动作。
+// 被放弃的实例不可通过重试恢复，调用方应直接退出进程。
+// 注意：Stop 与 StopWithTimeout 不得并发调用（并发调用且底层 I/O 永久卡死时，
+// 未感知 aborted 标记的调用方可能永久阻塞在关闭流程上）。
 func (wa *WriteAsyncer) Stop() {
+	if wa.aborted.Load() {
+		return
+	}
+
 	wa.once.Do(func() {
 		wa.state.SetRunning(false)
 		// 关闭队列以唤醒阻塞在有界队列 Push() 上的 goroutine
@@ -114,6 +126,10 @@ func (wa *WriteAsyncer) Stop() {
 
 // StopWithTimeout 带超时的停止方法，防止底层 I/O 卡住时无限阻塞。
 // 超时返回 context.DeadlineExceeded；正常关闭返回 nil。
+// 超时即表示该实例被永久放弃：后台关闭工作可能仍在进行且不会被回收，
+// 实例不可通过重试恢复，调用方应直接退出进程。
+// 注意：Stop 与 StopWithTimeout 不得并发调用（并发调用且底层 I/O 永久卡死时，
+// 未感知 aborted 标记的调用方可能永久阻塞在关闭流程上）。
 func (wa *WriteAsyncer) StopWithTimeout(timeout time.Duration) error {
 	done := make(chan struct{})
 	go func() {
@@ -126,6 +142,8 @@ func (wa *WriteAsyncer) StopWithTimeout(timeout time.Duration) error {
 	case <-done:
 		return nil
 	case <-timer.C:
+		wa.state.SetRunning(false)
+		wa.aborted.Store(true)
 		return context.DeadlineExceeded
 	}
 }

@@ -54,10 +54,7 @@ func NewBufferPool() *BufferPool {
 		},
 	}
 
-	warmUpCount := runtime.GOMAXPROCS(0) * 4
-	if warmUpCount < 8 {
-		warmUpCount = 8
-	}
+	warmUpCount := max(8, runtime.GOMAXPROCS(0)*4)
 	for i := 0; i < warmUpCount; i++ {
 		p.tinyPool.Put(bytes.NewBuffer(make([]byte, 0, tinyBufferSize)))
 		p.smallPool.Put(bytes.NewBuffer(make([]byte, 0, smallBufferSize)))

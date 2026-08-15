@@ -1,6 +1,6 @@
 module github.com/shengyanli1982/law/examples/http/server/syncwriter
 
-go 1.19
+go 1.23
 
 replace github.com/shengyanli1982/law => ../../../../
 
