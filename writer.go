@@ -84,6 +84,7 @@ func NewWriteAsyncer(writer io.Writer, conf *Config) *WriteAsyncer {
 	wa.poller = poller.NewPoller(&poller.Config{
 		Queue:             queue,
 		Writer:            wa.bufferedWriter,
+		Underlying:        wa.writer,
 		Callback:          conf.callback,
 		BufferPool:        wa.bufferpool,
 		HeartbeatInterval: conf.heartbeatInterval,
@@ -108,9 +109,16 @@ func (wa *WriteAsyncer) Stop() {
 
 	wa.once.Do(func() {
 		wa.state.SetRunning(false)
-		// 关闭队列以唤醒阻塞在有界队列 Push() 上的 goroutine
-		if closer, ok := wa.queue.(io.Closer); ok {
+		// 关闭队列以唤醒阻塞在有界队列 Push() 上的 goroutine。
+		// 两种 Close 签名在 Go 中互斥（同名方法不可重载），类型开关覆盖双形态：
+		// 内置 MPSCQueue 为 Close()（无返回值，config.go 编译期断言防签名漂移）；
+		// 自定义队列可能惯用实现 io.Closer（Close() error），单形态断言会对其静默 miss。
+		switch closer := wa.queue.(type) {
+		case interface{ Close() }:
 			closer.Close()
+		case io.Closer:
+			// Stop 对队列关闭失败无补救动作，与内置 Close() 路径语义一致，忽略错误。
+			_ = closer.Close()
 		}
 		wa.cancel()
 		wa.wg.Wait()
@@ -131,6 +139,12 @@ func (wa *WriteAsyncer) Stop() {
 // 注意：Stop 与 StopWithTimeout 不得并发调用（并发调用且底层 I/O 永久卡死时，
 // 未感知 aborted 标记的调用方可能永久阻塞在关闭流程上）。
 func (wa *WriteAsyncer) StopWithTimeout(timeout time.Duration) error {
+	// 已放弃的实例不可恢复：内部 Stop() 会因 aborted 短路立即返回，
+	// 若放行将使 done 立即关闭、重试假报"干净关闭"，故直接返回超时错误。
+	if wa.aborted.Load() {
+		return context.DeadlineExceeded
+	}
+
 	done := make(chan struct{})
 	go func() {
 		wa.Stop()
@@ -148,7 +162,10 @@ func (wa *WriteAsyncer) StopWithTimeout(timeout time.Duration) error {
 	}
 }
 
-// Write 实现写入方法
+// Write 实现写入方法。
+// 并发语义：Write 与 Stop 之间存在竞态窗口——IsRunning 检查通过后 Stop 可能
+// 已关闭队列，此时数据要么已被 poller 排空落盘、要么被关闭的队列静默丢弃；
+// 两种情况 Write 均返回 ErrorWriteAsyncerIsClosed（保守报错，不假报成功）。
 func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 	if !wa.state.IsRunning() {
 		return 0, ErrorWriteAsyncerIsClosed
@@ -163,12 +180,11 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
+	// GetWithHint 已按 size 路由到容量足够的池；容量不足时
+	// bytes.Buffer.Write 自行扩容（原 Grow(l-Cap) 守卫语义错误，是 no-op，已删除）。
 	buff := wa.bufferpool.GetWithHint(l)
-	if buff.Cap() < l {
-		buff.Grow(l - buff.Cap())
-	}
 
-	if n, err = buff.Write(p); err != nil {
+	if _, err = buff.Write(p); err != nil {
 		wa.bufferpool.Put(buff)
 		return 0, err
 	}
@@ -179,11 +195,17 @@ func (wa *WriteAsyncer) Write(p []byte) (n int, err error) {
 		}
 	}
 	wa.queue.Push(buff)
+	// Push 后复查关闭状态：封堵 IsRunning 检查与 Push 之间的竞态窗口。
+	// Stop 进行中时队列已关闭，Push 静默丢弃数据，此处保守报错而非假报成功。
+	if !wa.state.IsRunning() {
+		return 0, ErrorWriteAsyncerIsClosed
+	}
 	return l, nil
 }
 
 // WriteString 实现 io.StringWriter 接口，使日志框架（zap/logrus/stdlib log）
 // 检测到该接口时自动走字符串写入路径，避免 string→[]byte 的额外分配。
+// 并发语义同 Write：与 Stop 存在竞态窗口，Push 后复查关闭状态，保守报错不假报成功。
 func (wa *WriteAsyncer) WriteString(s string) (n int, err error) {
 	if !wa.state.IsRunning() {
 		return 0, ErrorWriteAsyncerIsClosed
@@ -194,13 +216,11 @@ func (wa *WriteAsyncer) WriteString(s string) (n int, err error) {
 	}
 
 	l := len(s)
+	// 同 Write：容量由 GetWithHint 路由与 bytes.Buffer.Write 自扩容保证。
 	buff := wa.bufferpool.GetWithHint(l)
-	if buff.Cap() < l {
-		buff.Grow(l - buff.Cap())
-	}
 
 	src := unsafe.Slice(unsafe.StringData(s), l)
-	if n, err = buff.Write(src); err != nil {
+	if _, err = buff.Write(src); err != nil {
 		wa.bufferpool.Put(buff)
 		return 0, err
 	}
@@ -211,5 +231,9 @@ func (wa *WriteAsyncer) WriteString(s string) (n int, err error) {
 		}
 	}
 	wa.queue.Push(buff)
+	// Push 后复查关闭状态，语义同 Write：Stop 进行中保守报错，不假报成功。
+	if !wa.state.IsRunning() {
+		return 0, ErrorWriteAsyncerIsClosed
+	}
 	return l, nil
 }

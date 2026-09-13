@@ -16,6 +16,12 @@ const (
 	DefaultIdleTimeout       = 5 * time.Second
 )
 
+// 编译期断言：MPSCQueue 必须具备 Close() 能力。
+// writer.Stop() 通过 interface{ Close() } 动态断言关闭队列；
+// 若 Close 签名漂移（如改为 Close() error），动态断言会静默失效，
+// 导致队列永不关闭、阻塞在有界队列 Push 上的生产者永久泄漏。
+var _ interface{ Close() } = (*iq.MPSCQueue[*bytes.Buffer])(nil)
+
 // Config 配置结构体
 type Config struct {
 	buffSize          int           // 缓冲区大小

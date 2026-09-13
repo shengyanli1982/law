@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -43,8 +44,13 @@ type Callback interface {
 
 // Poller 轮询器，负责异步处理队列中的写入请求。
 type Poller struct {
-	queue             Queue[*bytes.Buffer]
-	writer            *bufio.Writer
+	queue  Queue[*bytes.Buffer]
+	writer *bufio.Writer
+	// underlying 是 bufio.Writer 包裹的底层写入器，用于错误恢复：
+	// bufio.Writer 的错误是粘性的，底层一次失败后所有 Write/Flush 都短路
+	// 返回缓存错误，只有 Reset(underlying) 能清除并恢复后续写入能力。
+	// 为 nil 时跳过恢复（兼容未注入底层的直接构造路径）。
+	underlying        io.Writer
 	callback          Callback
 	hasCallback       bool
 	bufferpool        *wr.BufferPool
@@ -63,8 +69,12 @@ type Poller struct {
 
 // Config Poller配置。
 type Config struct {
-	Queue             Queue[*bytes.Buffer]
-	Writer            *bufio.Writer
+	Queue  Queue[*bytes.Buffer]
+	Writer *bufio.Writer
+	// Underlying 为 Writer（bufio.Writer）包裹的底层 io.Writer。
+	// 写入错误后 poller 以其 Reset 清除 bufio 粘性错误，恢复后续写入能力。
+	// 可选；为 nil 时不做粘性错误恢复。
+	Underlying        io.Writer
 	Callback          Callback
 	BufferPool        *wr.BufferPool
 	HeartbeatInterval time.Duration
@@ -76,6 +86,7 @@ func NewPoller(cfg *Config) *Poller {
 	p := &Poller{
 		queue:             cfg.Queue,
 		writer:            cfg.Writer,
+		underlying:        cfg.Underlying,
 		callback:          cfg.Callback,
 		hasCallback:       cfg.Callback != nil,
 		bufferpool:        cfg.BufferPool,
@@ -176,6 +187,7 @@ func (p *Poller) Run(ctx context.Context, wg *sync.WaitGroup) {
 				idleMilli := p.idleTimeout.Milliseconds()
 				if (nowMilli-executeAt) >= idleMilli || (nowMilli-lastFlushAt) >= idleMilli {
 					if err := p.writer.Flush(); err != nil {
+						p.resetStickyError()
 						if p.hasCallback {
 							p.callback.OnWriteFailed(nil, err)
 						}
@@ -203,6 +215,18 @@ func (p *Poller) executeFunc(buff *bytes.Buffer, executeAt *int64, lastFlushAt *
 	p.bufferpool.Put(buff)
 }
 
+// resetStickyError 清除 bufio.Writer 的粘性错误。
+// bufio.Writer 一旦底层返回错误便永久缓存（b.err），此后所有 Write/Flush
+// 直接短路返回该错误，底层恢复后日志仍全丢且每条触发失败回调；
+// 只有 Reset 能清除。契约已声明失败数据丢失（见 Callback.OnWriteFailed），
+// Reset 丢弃缓冲中的残留数据不构成新增损失。
+// underlying 为 nil（旧路径直接构造 Poller 未注入底层）时跳过。
+func (p *Poller) resetStickyError() {
+	if p.underlying != nil {
+		p.writer.Reset(p.underlying)
+	}
+}
+
 // flushBufferedWriter 刷新缓冲写入器。
 // 缓冲满触发的预 flush 成功后刷新 lastFlushAt。
 func (p *Poller) flushBufferedWriter(content []byte, lastFlushAt *int64, nowMilli int64) (int, error) {
@@ -213,12 +237,17 @@ func (p *Poller) flushBufferedWriter(content []byte, lastFlushAt *int64, nowMill
 
 	if sizeOfContent > p.writer.Available() && p.writer.Buffered() > 0 {
 		if err := p.writer.Flush(); err != nil {
+			p.resetStickyError()
 			return 0, err
 		}
 		*lastFlushAt = nowMilli
 	}
 
-	return p.writer.Write(content)
+	n, err := p.writer.Write(content)
+	if err != nil {
+		p.resetStickyError()
+	}
+	return n, err
 }
 
 // CleanQueue 清理队列中的所有内容。
