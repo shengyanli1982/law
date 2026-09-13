@@ -280,6 +280,14 @@ type Queue interface {
 }
 ```
 
+> [!WARNING]
+>
+> `Pop` must be **non-blocking**: when the queue is empty it must return `nil` immediately, never block waiting for new items. The internal poller's drain loop relies on this contract to detect an exhausted queue -- a blocking `Pop` implementation will hang the poller (no more flushes, and `Stop()` never returns).
+
+> [!NOTE]
+>
+> **Close-on-stop**: `Stop()` opportunistically closes the queue if it implements either `Close()` or `Close() error` (the `io.Closer` form). A custom bounded queue should implement one of them so that `Stop()` can wake up producers blocked in `Push()` -- otherwise those goroutines leak at shutdown.
+
 # Examples
 
 The following examples show how to integrate LAW with popular Go logging frameworks. More examples are available in the `examples/` directory.
